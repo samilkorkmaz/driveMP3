@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose supplies the real Material 3 theme; this only needs to give the
+         Activity a title-less window before the first frame. -->
+    <style name="Theme.DriveMP3" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

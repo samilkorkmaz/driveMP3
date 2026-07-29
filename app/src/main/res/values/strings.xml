@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DriveMP3</string>
+
+    <string name="sign_in">Sign in with Google</string>
+    <string name="sign_out">Sign out</string>
+    <string name="retry">Try again</string>
+
+    <string name="signed_out_message">Sign in to list the MP3 files in your Google Drive.</string>
+    <string name="empty_message">No MP3 files found in your Drive.</string>
+</resources>
