@@ -9,3 +9,10 @@
 .cxx
 local.properties
 /app/build/
+
+# Signing material. The SHA-1 *fingerprint* is public (it ships in every APK),
+# but the keystore holds the private key — never commit these.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
