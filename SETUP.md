@@ -40,6 +40,8 @@ Then add the scope `https://www.googleapis.com/auth/drive.readonly`, and under
 | Package name | `com.drivemp3.player` |
 | SHA-1 certificate fingerprint | `F0:32:86:5C:3E:39:58:32:0F:16:BA:2A:2A:3F:CE:50:E8:91:FC:DD` |
 
+Note that it is ok to leave SHA-1 certificate fingerprint in this document and publish it in public repo because the fingerprint is a hash of your signing certificate, not the private key, and the certificate ships inside every APK you build. Anyone holding your APK can already read it. So publishing it discloses nothing that distribution wouldn't.
+
 That SHA-1 is this machine's debug keystore, read from
 `%USERPROFILE%\.android\debug.keystore`. To re-derive it later:
 
