@@ -19,12 +19,11 @@ only you can create. That is the checklist below — roughly 10 minutes, one tim
 | --- | --- |
 | User type | **External** |
 | App name | DriveMP3 |
-| User support email | samil.korkmaz@gmail.com |
-| Developer contact | samil.korkmaz@gmail.com |
+| User support email | `<your-google-account>` |
+| Developer contact | `<your-google-account>` |
 | Publishing status | leave as **Testing** |
 
-Then add the scope `https://www.googleapis.com/auth/drive.readonly`, and under
-**Test users** add `samil.korkmaz@gmail.com`.
+Under **Test users** add `<test-user-google-account>` — the same address in all three fields.
 
 > Testing mode allows up to 100 test users and does not expire. Leave it here —
 > moving to Production with this scope triggers OAuth verification plus a CASA
@@ -40,7 +39,7 @@ Then add the scope `https://www.googleapis.com/auth/drive.readonly`, and under
 | Package name | `com.drivemp3.player` |
 | SHA-1 certificate fingerprint | `F0:32:86:5C:3E:39:58:32:0F:16:BA:2A:2A:3F:CE:50:E8:91:FC:DD` |
 
-Note that it is ok to leave SHA-1 certificate fingerprint in this document and publish it in public repo because the fingerprint is a hash of your signing certificate, not the private key, and the certificate ships inside every APK you build. Anyone holding your APK can already read it. So publishing it discloses nothing that distribution wouldn't.
+> Note that it is ok to leave SHA-1 certificate fingerprint in this document and publish it in public repo because the fingerprint is a hash of your signing certificate, not the private key, and the certificate ships inside every APK you build. Anyone holding your APK can already read it. So publishing it discloses nothing that distribution wouldn't.
 
 That SHA-1 is this machine's debug keystore, read from
 `%USERPROFILE%\.android\debug.keystore`. To re-derive it later:
