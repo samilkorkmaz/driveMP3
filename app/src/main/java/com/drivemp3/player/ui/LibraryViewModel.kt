@@ -18,6 +18,8 @@ import com.drivemp3.player.data.local.TrackEntity
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
+import com.drivemp3.player.playback.PlaybackController
+import com.drivemp3.player.playback.PlaybackState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -63,6 +65,7 @@ class LibraryViewModel(
     private val settingsStore: SettingsStore,
     private val trackRepository: TrackRepository,
     private val driveRepository: DriveRepository,
+    private val playbackController: PlaybackController,
 ) : ViewModel() {
 
     /** Auth phase plus the incidental per-session fields, kept in one flow. */
@@ -142,6 +145,23 @@ class LibraryViewModel(
             initialValue = LibraryUiState.Loading,
         )
 
+    /**
+     * Playback progress, kept out of [state] on purpose: it changes twice a second,
+     * and folding it into the library state would re-emit the whole track list at that
+     * rate.
+     */
+    val playback: StateFlow<PlaybackState> = playbackController.state
+
+    /** Just enough of [playback] to highlight a row, so the list settles between tracks. */
+    val playingTrackId: StateFlow<String?> = playbackController.state
+        .map { it.trackId }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = null,
+        )
+
     init {
         resumeSessionIfAlreadyGranted()
         refreshWhenTokenOrScopeChanges()
@@ -218,6 +238,9 @@ class LibraryViewModel(
     }
 
     fun signOut() {
+        // Before the token is dropped: the stream would fail on its next range
+        // request anyway, and a bar still ticking after sign-out looks broken.
+        playbackController.stop()
         auth.clearToken()
         searchQuery.value = ""
         session.value = Session()
@@ -258,6 +281,30 @@ class LibraryViewModel(
             val scope = settingsStore.libraryScope.first() ?: return@launch
             refreshNow(phase.accessToken, scope)
         }
+    }
+
+    /**
+     * Streams the tapped track (FR-3.4.1). Requires a live token: the player's
+     * `DataSource` reads it synchronously, so a track tapped before authorization
+     * finished would 401 on its very first request.
+     */
+    fun onTrackClick(track: TrackEntity) {
+        if (session.value.auth !is AuthPhase.Authorized) return
+        playbackController.play(trackId = track.id, trackName = track.name)
+    }
+
+    fun togglePlayPause() = playbackController.togglePlayPause()
+
+    fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
+
+    /**
+     * v0.3 is foreground-only, so the player dies with the screen that owns it —
+     * surviving rotation, because the ViewModel does, but not the task being closed.
+     * Background playback and its `MediaSessionService` are v0.4.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        playbackController.release()
     }
 
     private suspend fun onAuthorized(accessToken: String) {
@@ -309,6 +356,12 @@ class LibraryViewModel(
                     settingsStore = ServiceLocator.settingsStore(appContext),
                     trackRepository = ServiceLocator.trackRepository(appContext),
                     driveRepository = ServiceLocator.driveRepository,
+                    // Not from ServiceLocator: this one is owned and released by the
+                    // ViewModel, not shared for the process lifetime.
+                    playbackController = PlaybackController(
+                        context = appContext,
+                        auth = ServiceLocator.authManager(appContext),
+                    ),
                 )
             }
         }

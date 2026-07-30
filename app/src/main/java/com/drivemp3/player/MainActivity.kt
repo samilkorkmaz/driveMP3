@@ -35,6 +35,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             DriveMp3Theme {
                 val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
+                val playback by libraryViewModel.playback.collectAsStateWithLifecycle()
+                val playingTrackId by
+                    libraryViewModel.playingTrackId.collectAsStateWithLifecycle()
 
                 val consentLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartIntentSenderForResult()
@@ -86,6 +89,10 @@ class MainActivity : ComponentActivity() {
                 } else {
                     LibraryScreen(
                         state = libraryState,
+                        // Passed as a lambda so the twice-a-second position update
+                        // recomposes only the now-playing bar that reads it.
+                        playback = { playback },
+                        playingTrackId = playingTrackId,
                         onSignIn = libraryViewModel::signIn,
                         onSignOut = libraryViewModel::signOut,
                         onRetry = libraryViewModel::retry,
@@ -94,6 +101,9 @@ class MainActivity : ComponentActivity() {
                         onSortFieldSelected = libraryViewModel::setSortField,
                         onToggleSortDirection = libraryViewModel::toggleSortDirection,
                         onSearchQueryChange = libraryViewModel::onSearchQueryChange,
+                        onTrackClick = libraryViewModel::onTrackClick,
+                        onTogglePlayPause = libraryViewModel::togglePlayPause,
+                        onSeek = libraryViewModel::seekTo,
                     )
                 }
             }

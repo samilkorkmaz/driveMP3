@@ -1,5 +1,6 @@
 package com.drivemp3.player.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -49,11 +52,19 @@ import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.SortDirection
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
+import com.drivemp3.player.playback.PlaybackState
 
+/**
+ * @param playback read through a lambda rather than passed by value so the position
+ *   ticking twice a second only recomposes the now-playing bar, not the track list.
+ * @param playingTrackId changes once per track, so highlighting a row is cheap.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     state: LibraryUiState,
+    playback: () -> PlaybackState,
+    playingTrackId: String?,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onRetry: () -> Unit,
@@ -62,6 +73,9 @@ fun LibraryScreen(
     onSortFieldSelected: (SortField) -> Unit,
     onToggleSortDirection: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
+    onTrackClick: (TrackEntity) -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -83,6 +97,13 @@ fun LibraryScreen(
                         )
                     }
                 },
+            )
+        },
+        bottomBar = {
+            NowPlayingBar(
+                state = playback(),
+                onTogglePlayPause = onTogglePlayPause,
+                onSeek = onSeek,
             )
         },
     ) { contentPadding ->
@@ -107,10 +128,12 @@ fun LibraryScreen(
 
                 is LibraryUiState.Content -> LibraryContent(
                     state = state,
+                    playingTrackId = playingTrackId,
                     onChangeFolder = onChangeFolder,
                     onSortFieldSelected = onSortFieldSelected,
                     onToggleSortDirection = onToggleSortDirection,
                     onSearchQueryChange = onSearchQueryChange,
+                    onTrackClick = onTrackClick,
                 )
 
                 is LibraryUiState.Failed -> MessageWithAction(
@@ -158,10 +181,12 @@ private fun OverflowMenu(
 @Composable
 private fun LibraryContent(
     state: LibraryUiState.Content,
+    playingTrackId: String?,
     onChangeFolder: () -> Unit,
     onSortFieldSelected: (SortField) -> Unit,
     onToggleSortDirection: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
+    onTrackClick: (TrackEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -211,7 +236,11 @@ private fun LibraryContent(
             return@Column
         }
 
-        TrackList(tracks = state.tracks)
+        TrackList(
+            tracks = state.tracks,
+            playingTrackId = playingTrackId,
+            onTrackClick = onTrackClick,
+        )
     }
 }
 
@@ -323,18 +352,46 @@ private fun SortBar(
 }
 
 @Composable
-private fun TrackList(tracks: List<TrackEntity>, modifier: Modifier = Modifier) {
+private fun TrackList(
+    tracks: List<TrackEntity>,
+    playingTrackId: String?,
+    onTrackClick: (TrackEntity) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LazyColumn(modifier = modifier.fillMaxSize()) {
         items(items = tracks, key = { "${it.scopeId}:${it.id}" }) { track ->
+            val isCurrent = track.id == playingTrackId
+
             ListItem(
+                modifier = Modifier.clickable { onTrackClick(track) },
                 headlineContent = {
-                    Text(track.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = track.name,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        // Colour rather than a badge: the leading slot is reserved for
+                        // v0.5's "Downloaded" indicator (FR-3.2.4).
+                        color = if (isCurrent) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            Color.Unspecified
+                        },
+                    )
                 },
                 supportingContent = {
                     Text(
                         "${formatCreatedTime(track.createdTimeEpochMs)}  ·  " +
                             formatSize(track.sizeBytes)
                     )
+                },
+                trailingContent = if (!isCurrent) null else {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = stringResource(R.string.current_track),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 },
             )
         }

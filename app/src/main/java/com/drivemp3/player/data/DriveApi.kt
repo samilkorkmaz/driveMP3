@@ -32,5 +32,13 @@ interface DriveApi {
 
     companion object {
         const val BASE_URL = "https://www.googleapis.com/"
+
+        /**
+         * The binary-content URL for a file, fetched by the player rather than by
+         * Retrofit — ExoPlayer needs the URL so it can issue its own ranged GETs.
+         *
+         * No percent-encoding: Drive file ids are URL-safe base64 (`[A-Za-z0-9_-]`).
+         */
+        fun mediaUrl(fileId: String): String = "${BASE_URL}drive/v3/files/$fileId?alt=media"
     }
 }

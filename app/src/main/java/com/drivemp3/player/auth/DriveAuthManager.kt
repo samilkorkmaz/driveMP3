@@ -57,6 +57,27 @@ class DriveAuthManager(context: Context) {
         }
     }
 
+    /**
+     * The cached token without suspending, for callers that cannot: ExoPlayer builds
+     * its `DataSource` on a loading thread and asks for request headers synchronously.
+     * Null before the first successful [authorize].
+     */
+    fun currentToken(): String? = cachedToken
+
+    /**
+     * Discards the cached token and asks Play Services for a new one.
+     *
+     * Needed because an access token lives about an hour while a track can outlast
+     * that: Drive then answers 401 mid-stream and only a fresh token recovers. Play
+     * Services owns the refresh token, so this resolves silently as long as the grant
+     * stands; it returns null when the grant is gone and the user must consent again.
+     */
+    suspend fun refreshAccessToken(): String? {
+        cachedToken = null
+        val result = runCatching { authorize() }.getOrNull()
+        return (result as? AuthResult.Authorized)?.accessToken
+    }
+
     /** Reads the token out of the Intent handed back by the consent screen. */
     fun onConsentResult(data: Intent?): String? =
         client.getAuthorizationResultFromIntent(data).accessToken

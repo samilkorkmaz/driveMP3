@@ -14,8 +14,8 @@ android {
         applicationId = "com.drivemp3.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     buildTypes {
@@ -74,4 +74,13 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.datastore.preferences)
+
+    // Media3 rather than MediaPlayer: HTTP Range-based seeking, a pluggable
+    // DataSource for the bearer token, and the CacheDataSource that v0.5 needs.
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.datasource)
+    // Declared explicitly rather than leaned on transitively: the extractor flags are
+    // what make the seek bar work on MP3s with no Xing header.
+    implementation(libs.androidx.media3.extractor)
 }

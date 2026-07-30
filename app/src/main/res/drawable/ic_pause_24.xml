@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Material Symbols "pause", 24dp.
+
+    A drawable rather than an Icons.Default entry: compose-material-icons-core ships
+    PlayArrow but not Pause, and pulling in material-icons-extended for one glyph
+    would add thousands of unused vectors to the build.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!--
+        No android:tint: Compose's Icon applies the content colour as a filter over
+        this white path. A theme-attribute tint here would also need AppCompat, which
+        this app does not depend on.
+    -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M6,19h4V5H6v14zM14,5v14h4V5h-4z" />
+</vector>
