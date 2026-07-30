@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -13,8 +14,8 @@ android {
         applicationId = "com.drivemp3.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
     }
 
     buildTypes {
@@ -65,4 +66,12 @@ dependencies {
 
     implementation(libs.play.services.auth)
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // Local index: renders the library instantly and offline, and does the sorting
+    // in SQL rather than holding 1,000+ items sorted in memory.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.datastore.preferences)
 }

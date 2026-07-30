@@ -1,4 +1,4 @@
-# DriveMP3 v0.1 — Setup
+# DriveMP3 v0.2 — Setup
 
 The project builds already (`./gradlew :app:assembleDebug` passes). What it cannot do
 yet is authenticate, because OAuth clients are tied to a Google Cloud project that
@@ -72,19 +72,32 @@ gitignored, so it needs recreating on any other machine.
 
 ---
 
-## 5. Acceptance check for v0.1
+## 5. Acceptance check for v0.2
 
 | # | Step | Expected |
 | --- | --- | --- |
 | 1 | Cold launch, never signed in | Sign-in prompt, **no** consent dialog until you tap |
 | 2 | Tap "Sign in with Google" | Account picker, then the Drive consent screen |
-| 3 | Grant consent | Your email, MP3 count, and file rows with date + size |
-| 4 | Kill and relaunch | Goes straight to the list, no prompt (silent re-auth) |
-| 5 | Tap "Sign out", then sign in again | Returns to the list without a second consent screen |
-| 6 | Revoke access at <https://myaccount.google.com/permissions>, relaunch | "Drive access was revoked. Sign in again." with a working retry |
-| 7 | Enable airplane mode, relaunch | "Network unavailable. Check your connection." with a working retry |
+| 3 | Grant consent | Folder picker opens automatically, rooted at "My Drive" |
+| 4 | Tap a folder name | Drills in; title updates; back arrow returns |
+| 5 | Tap "Use <folder>" | Library appears, scoped to that folder's MP3s |
+| 6 | Kill and relaunch | Straight to the library, same folder, no prompt |
+| 7 | Tap "Name" / "Upload date" chips | List reorders instantly, no network request |
+| 8 | Tap the arrow beside the chips | Direction flips; survives relaunch |
+| 9 | Type into the search field | Narrows to names *starting with* what you typed, per keystroke |
+| 10 | Type a prefix that matches nothing | "No file names start with “…”." — distinct from the empty-folder message |
+| 11 | Type `%` or `_` | Treated literally, not as a wildcard |
+| 12 | Clear search with the ✕ | Full list returns |
+| 13 | Overflow → Change folder, pick "All of my Drive" | Every MP3 in the account; search box resets |
+| 14 | Enable airplane mode, relaunch | List still renders from the index, with an "Offline — showing the last scan" banner; search still works |
+| 15 | Revoke access at <https://myaccount.google.com/permissions>, relaunch | "Drive access was revoked. Sign in again." with a working retry |
+| 16 | Overflow → Sign out, then sign in again | Returns to the library without a second consent screen |
 
-Step 5 is a local sign-out: it drops the in-memory token but leaves the Google-side
+Steps 7 and 9 are the point of the local index: sorting and search are both SQL
+against already indexed rows, so neither re-scans Drive. Step 14 is the same
+mechanism — both keep working with no network at all.
+
+Step 12 is a local sign-out: it drops the in-memory token but leaves the Google-side
 grant intact, which is why consent does not reappear. Real revocation ships with the
 Settings screen in v0.6.
 
@@ -94,23 +107,39 @@ Settings screen in v0.6.
 
 | Path | Role |
 | --- | --- |
-| [MainActivity.kt](app/src/main/java/com/drivemp3/player/MainActivity.kt) | Hosts Compose; launches the consent `PendingIntent` |
+| [MainActivity.kt](app/src/main/java/com/drivemp3/player/MainActivity.kt) | Hosts Compose; launches the consent `PendingIntent`; library ↔ picker routing |
 | [auth/DriveAuthManager.kt](app/src/main/java/com/drivemp3/player/auth/DriveAuthManager.kt) | Access tokens via Play Services `AuthorizationClient` |
 | [data/DriveApi.kt](app/src/main/java/com/drivemp3/player/data/DriveApi.kt) | Retrofit interface over Drive REST v3 |
-| [data/DriveRepository.kt](app/src/main/java/com/drivemp3/player/data/DriveRepository.kt) | The Drive query, field list, and paging constants |
-| [ui/LibraryViewModel.kt](app/src/main/java/com/drivemp3/player/ui/LibraryViewModel.kt) | State machine: SignedOut → Loading → Content / Failed |
-| [ui/LibraryScreen.kt](app/src/main/java/com/drivemp3/player/ui/LibraryScreen.kt) | The single screen |
+| [data/DriveRepository.kt](app/src/main/java/com/drivemp3/player/data/DriveRepository.kt) | Drive queries, `nextPageToken` paging, MP3 filtering |
+| [data/TrackRepository.kt](app/src/main/java/com/drivemp3/player/data/TrackRepository.kt) | Bridges Drive and the local index; atomic per-scope refresh |
+| [data/SettingsStore.kt](app/src/main/java/com/drivemp3/player/data/SettingsStore.kt) | DataStore: chosen folder and sort order |
+| [data/local/TrackDao.kt](app/src/main/java/com/drivemp3/player/data/local/TrackDao.kt) | The four ordered queries backing sort + prefix search |
+| [model/LibraryScope.kt](app/src/main/java/com/drivemp3/player/model/LibraryScope.kt) | AllDrive vs Folder scoping |
+| [ui/LibraryViewModel.kt](app/src/main/java/com/drivemp3/player/ui/LibraryViewModel.kt) | Combines auth + scope + sort into one UI state |
+| [ui/LibraryScreen.kt](app/src/main/java/com/drivemp3/player/ui/LibraryScreen.kt) | Library list and the sort bar |
+| [ui/FolderPickerScreen.kt](app/src/main/java/com/drivemp3/player/ui/FolderPickerScreen.kt) | Folder tree browser |
 | [ServiceLocator.kt](app/src/main/java/com/drivemp3/player/ServiceLocator.kt) | Hand-wired dependencies (no DI framework yet) |
 
 ---
 
-## Known v0.1 limitations (by design)
+## Known v0.2 limitations (by design)
 
-- **First 100 files only**, whole-Drive, newest first. Folder scoping and full paging are v0.2.
-- **Matches `mimeType = 'audio/mpeg'` only.** Drive's `contains` operator does prefix
-  matching on `name`, so `name contains '.mp3'` does not reliably match `song.mp3`.
-  Once v0.2 scopes to a folder, extension filtering happens client-side instead. See
-  the comment in [DriveRepository.kt](app/src/main/java/com/drivemp3/player/data/DriveRepository.kt).
+- **Folder scoping is not recursive.** A folder scope covers that folder's *direct*
+  children only. Spec FR-3.1.2 says "select a specific root folder" without settling
+  whether subfolders are included; recursion means one Drive query per subfolder,
+  which conflicts with the sub-second listing target. "All of my Drive" covers the
+  recursive case. Worth revisiting if real libraries turn out to be nested.
+- **`.mp3` name matching applies to folder scopes only.** Drive's `contains` operator
+  does prefix matching on `name`, so `name contains '.mp3'` cannot match `song.mp3`
+  server-side. Folder scopes list all children and filter locally, honouring
+  FR-3.1.3 fully; "All of my Drive" must rely on `mimeType = 'audio/mpeg'` alone,
+  since listing every file in an account to filter locally is not viable.
+- **Search is prefix-only**, matching what was specified: `mid` finds `midnight.mp3`
+  but not `the-midnight.mp3`. Substring matching would need a full scan or an FTS
+  table.
+- **Search covers the indexed scope**, not all of Drive. In a folder scope it only
+  matches that folder's files; switch to "All of my Drive" to search everything.
+- **No playback yet** — tapping a track does nothing. That is v0.3.
 - **No app icon** — the launcher shows the default Android icon until v1.0.
-- **Token held in memory only.** Rotating the screen is fine (the ViewModel survives);
-  a process death re-authorizes silently.
+- **Token held in memory only.** Rotation is fine (the ViewModel survives); process
+  death re-authorizes silently.

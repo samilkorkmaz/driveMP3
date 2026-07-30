@@ -60,7 +60,7 @@ Risk first. Auth and authenticated streaming are the two places this project can
 
 ---
 
-### v0.2 — Folder scope, sorting, full library
+### v0.2 — Folder scope, sorting, search, full library
 
 *Satisfies FR-3.1.2, FR-3.3.1, FR-3.3.2*
 
@@ -69,6 +69,17 @@ Risk first. Auth and authenticated streaming are the two places this project can
 - Full `nextPageToken` pagination to cover 1,000+ files.
 - Sort by `createdTime` or `name`, each with an asc/desc toggle. Server-side via `orderBy` where possible, client-side fallback.
 - Room index so the list renders instantly and offline, hitting the <1s/1000-files target.
+- **Incremental file-name search.** A search field above the list filters to names
+  *starting with* the entered string, narrowing on every keystroke. Runs entirely
+  against the Room index as a SQL prefix match, so it issues no Drive request and
+  works offline. Case-insensitive across non-ASCII names, which rules out SQLite's
+  ASCII-only `LOWER()` and means storing a pre-lowercased column at index time.
+  Search state is deliberately *not* persisted — restoring a stale query on relaunch
+  would read as a broken library.
+
+> **Not in scope:** substring or fuzzy matching. Prefix-only is what was asked for,
+> and it is the form a `LIKE 'x%'` index can serve. Substring search would need
+> either a full scan or an FTS table.
 
 ---
 

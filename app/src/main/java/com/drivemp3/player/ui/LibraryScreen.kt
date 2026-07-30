@@ -3,28 +3,52 @@ package com.drivemp3.player.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.drivemp3.player.R
-import com.drivemp3.player.data.DriveFile
+import com.drivemp3.player.data.local.TrackEntity
+import com.drivemp3.player.model.LibraryScope
+import com.drivemp3.player.model.SortDirection
+import com.drivemp3.player.model.SortField
+import com.drivemp3.player.model.SortOrder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +57,11 @@ fun LibraryScreen(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
+    onChangeFolder: () -> Unit,
+    onSortFieldSelected: (SortField) -> Unit,
+    onToggleSortDirection: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -42,9 +71,16 @@ fun LibraryScreen(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     if (state is LibraryUiState.Content) {
-                        TextButton(onClick = onSignOut) {
-                            Text(stringResource(R.string.sign_out))
+                        IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.refresh),
+                            )
                         }
+                        OverflowMenu(
+                            onChangeFolder = onChangeFolder,
+                            onSignOut = onSignOut,
+                        )
                     }
                 },
             )
@@ -56,17 +92,26 @@ fun LibraryScreen(
                 .padding(contentPadding),
         ) {
             when (state) {
-                LibraryUiState.SignedOut -> SignedOutContent(
-                    onSignIn = onSignIn,
+                LibraryUiState.SignedOut -> MessageWithAction(
+                    message = stringResource(R.string.signed_out_message),
+                    actionLabel = stringResource(R.string.sign_in),
+                    onAction = onSignIn,
                     modifier = Modifier.align(Alignment.Center),
                 )
 
                 // The consent screen is already being launched; keep the spinner up.
                 LibraryUiState.Loading,
                 is LibraryUiState.ConsentRequired,
+                LibraryUiState.NeedsFolderSelection,
                     -> CircularProgressIndicator(Modifier.align(Alignment.Center))
 
-                is LibraryUiState.Content -> FileList(state)
+                is LibraryUiState.Content -> LibraryContent(
+                    state = state,
+                    onChangeFolder = onChangeFolder,
+                    onSortFieldSelected = onSortFieldSelected,
+                    onToggleSortDirection = onToggleSortDirection,
+                    onSearchQueryChange = onSearchQueryChange,
+                )
 
                 is LibraryUiState.Failed -> MessageWithAction(
                     message = state.message,
@@ -80,68 +125,216 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun SignedOutContent(onSignIn: () -> Unit, modifier: Modifier = Modifier) {
-    MessageWithAction(
-        message = stringResource(R.string.signed_out_message),
-        actionLabel = stringResource(R.string.sign_in),
-        onAction = onSignIn,
-        modifier = modifier,
+private fun OverflowMenu(
+    onChangeFolder: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    IconButton(onClick = { expanded = true }) {
+        Icon(
+            imageVector = Icons.Default.MoreVert,
+            contentDescription = stringResource(R.string.more_options),
+        )
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.change_folder)) },
+            onClick = {
+                expanded = false
+                onChangeFolder()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.sign_out)) },
+            onClick = {
+                expanded = false
+                onSignOut()
+            },
+        )
+    }
+}
+
+@Composable
+private fun LibraryContent(
+    state: LibraryUiState.Content,
+    onChangeFolder: () -> Unit,
+    onSortFieldSelected: (SortField) -> Unit,
+    onToggleSortDirection: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        ScopeHeader(state = state, onChangeFolder = onChangeFolder)
+
+        SearchField(
+            query = state.searchQuery,
+            onQueryChange = onSearchQueryChange,
+        )
+
+        SortBar(
+            sortOrder = state.sortOrder,
+            onSortFieldSelected = onSortFieldSelected,
+            onToggleSortDirection = onToggleSortDirection,
+        )
+
+        if (state.isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        state.refreshError?.let { error ->
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        HorizontalDivider()
+
+        if (state.tracks.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    // Distinguishes "this folder has no MP3s" from "your search
+                    // matched nothing", which need different user responses.
+                    text = if (state.searchQuery.isBlank()) {
+                        stringResource(R.string.empty_message)
+                    } else {
+                        stringResource(R.string.no_search_matches, state.searchQuery.trim())
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp),
+                )
+            }
+            return@Column
+        }
+
+        TrackList(tracks = state.tracks)
+    }
+}
+
+/** Incremental prefix search over the local index — no request per keystroke. */
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        singleLine = true,
+        placeholder = { Text(stringResource(R.string.search_hint)) },
+        leadingIcon = {
+            Icon(imageVector = Icons.Default.Search, contentDescription = null)
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = stringResource(R.string.clear_search),
+                    )
+                }
+            }
+        },
     )
 }
 
 @Composable
-private fun MessageWithAction(
-    message: String,
-    actionLabel: String,
-    onAction: () -> Unit,
+private fun ScopeHeader(
+    state: LibraryUiState.Content,
+    onChangeFolder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    val scopeLabel = when (val scope = state.scope) {
+        LibraryScope.AllDrive -> stringResource(R.string.all_of_my_drive)
+        is LibraryScope.Folder -> scope.folderName
+    }
+
+    ListItem(
+        modifier = modifier,
+        overlineContent = state.email?.let { email -> { Text(email) } },
+        headlineContent = {
+            Text(scopeLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        supportingContent = {
+            Text(pluralStringResource(R.plurals.track_count, state.tracks.size, state.tracks.size))
+        },
+        trailingContent = {
+            androidx.compose.material3.TextButton(onClick = onChangeFolder) {
+                Text(stringResource(R.string.change_folder))
+            }
+        },
+    )
+}
+
+/** The sort row from spec section 4: field selector plus a direction toggle. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SortBar(
+    sortOrder: SortOrder,
+    onSortFieldSelected: (SortField) -> Unit,
+    onToggleSortDirection: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = message,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyLarge,
+            text = stringResource(R.string.sort_label),
+            style = MaterialTheme.typography.labelLarge,
         )
-        Button(onClick = onAction) { Text(actionLabel) }
+
+        FilterChip(
+            selected = sortOrder.field == SortField.CreatedTime,
+            onClick = { onSortFieldSelected(SortField.CreatedTime) },
+            label = { Text(stringResource(R.string.sort_by_upload_date)) },
+        )
+        FilterChip(
+            selected = sortOrder.field == SortField.Name,
+            onClick = { onSortFieldSelected(SortField.Name) },
+            label = { Text(stringResource(R.string.sort_by_name)) },
+        )
+
+        val ascending = sortOrder.direction == SortDirection.Ascending
+        IconButton(onClick = onToggleSortDirection) {
+            Icon(
+                imageVector = if (ascending) {
+                    Icons.Default.KeyboardArrowUp
+                } else {
+                    Icons.Default.KeyboardArrowDown
+                },
+                contentDescription = stringResource(
+                    if (ascending) R.string.sort_ascending else R.string.sort_descending
+                ),
+            )
+        }
     }
 }
 
 @Composable
-private fun FileList(state: LibraryUiState.Content, modifier: Modifier = Modifier) {
-    if (state.files.isEmpty()) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = stringResource(R.string.empty_message),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-        return
-    }
-
+private fun TrackList(tracks: List<TrackEntity>, modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier.fillMaxSize()) {
-        state.email?.let { email ->
-            item {
-                ListItem(
-                    headlineContent = {
-                        Text(email, style = MaterialTheme.typography.bodyMedium)
-                    },
-                    supportingContent = {
-                        Text("${state.files.size} MP3 files")
-                    },
-                )
-                HorizontalDivider()
-            }
-        }
-
-        items(items = state.files, key = DriveFile::id) { file ->
+        items(items = tracks, key = { "${it.scopeId}:${it.id}" }) { track ->
             ListItem(
-                headlineContent = { Text(file.name) },
+                headlineContent = {
+                    Text(track.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                },
                 supportingContent = {
-                    Text("${formatCreatedTime(file.createdTime)}  ·  ${formatSize(file.size)}")
+                    Text(
+                        "${formatCreatedTime(track.createdTimeEpochMs)}  ·  " +
+                            formatSize(track.sizeBytes)
+                    )
                 },
             )
         }

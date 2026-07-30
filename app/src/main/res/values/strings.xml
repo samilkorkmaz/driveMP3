@@ -5,7 +5,36 @@
     <string name="sign_in">Sign in with Google</string>
     <string name="sign_out">Sign out</string>
     <string name="retry">Try again</string>
+    <string name="refresh">Rescan folder</string>
+    <string name="more_options">More options</string>
 
     <string name="signed_out_message">Sign in to list the MP3 files in your Google Drive.</string>
-    <string name="empty_message">No MP3 files found in your Drive.</string>
+    <string name="empty_message">No MP3 files found here.</string>
+
+    <!-- Scope selection -->
+    <string name="all_of_my_drive">All of my Drive</string>
+    <string name="all_of_my_drive_summary">Every MP3 in the account, at any depth</string>
+    <string name="choose_folder">Choose folder</string>
+    <string name="change_folder">Change folder</string>
+    <string name="use_this_folder">Use “%1$s”</string>
+    <string name="no_subfolders">No subfolders here.</string>
+    <string name="navigate_up">Up one folder</string>
+    <string name="close">Close</string>
+
+    <!-- Search -->
+    <string name="search_hint">Search file names</string>
+    <string name="clear_search">Clear search</string>
+    <string name="no_search_matches">No file names start with “%1$s”.</string>
+
+    <!-- Sorting (spec section 4) -->
+    <string name="sort_label">Sort:</string>
+    <string name="sort_by_upload_date">Upload date</string>
+    <string name="sort_by_name">Name</string>
+    <string name="sort_ascending">Ascending</string>
+    <string name="sort_descending">Descending</string>
+
+    <plurals name="track_count">
+        <item quantity="one">%d MP3 file</item>
+        <item quantity="other">%d MP3 files</item>
+    </plurals>
 </resources>

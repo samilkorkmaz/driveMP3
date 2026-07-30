@@ -12,6 +12,7 @@ data class DriveFileListResponse(
 data class DriveFile(
     val id: String,
     val name: String,
+    val mimeType: String? = null,
     /** Drive encodes int64 fields as strings. Absent for files with no binary payload. */
     val size: String? = null,
     /** RFC 3339, e.g. `2026-01-14T09:31:07.000Z`. */

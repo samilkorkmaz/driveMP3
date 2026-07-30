@@ -1,6 +1,6 @@
 package com.drivemp3.player.ui
 
-import java.time.OffsetDateTime
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -10,9 +10,9 @@ private const val BYTES_PER_KB = 1024.0
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-/** Drive sends `size` as a string because it is an int64. */
-fun formatSize(size: String?): String {
-    val bytes = size?.toLongOrNull() ?: return UNKNOWN
+/** Drive sends `size` as a string because it is an int64; the index stores it parsed. */
+fun formatSize(sizeBytes: Long?): String {
+    val bytes = sizeBytes ?: return UNKNOWN
     val kb = bytes / BYTES_PER_KB
     return when {
         bytes < 1024 -> "$bytes B"
@@ -21,17 +21,12 @@ fun formatSize(size: String?): String {
     }
 }
 
-/**
- * Parses Drive's RFC 3339 timestamp into the device's local time.
- *
- * [OffsetDateTime.parse] rather than [java.time.Instant.parse] so both `...Z` and
- * `...+02:00` forms are accepted.
- */
-fun formatCreatedTime(createdTime: String?): String {
-    if (createdTime == null) return UNKNOWN
+/** Drive's `createdTime`, normalised to epoch millis at index time, in device-local time. */
+fun formatCreatedTime(epochMillis: Long?): String {
+    if (epochMillis == null) return UNKNOWN
     return runCatching {
-        OffsetDateTime.parse(createdTime)
-            .atZoneSameInstant(ZoneId.systemDefault())
+        Instant.ofEpochMilli(epochMillis)
+            .atZone(ZoneId.systemDefault())
             .format(DATE_FORMAT)
     }.getOrDefault(UNKNOWN)
 }
