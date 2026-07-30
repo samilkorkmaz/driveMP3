@@ -42,11 +42,10 @@ class MainActivity : ComponentActivity() {
                 val consentLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartIntentSenderForResult()
                 ) { result ->
-                    if (result.resultCode == RESULT_OK) {
-                        libraryViewModel.onConsentResult(result.data)
-                    } else {
-                        libraryViewModel.onConsentCancelled()
-                    }
+                    libraryViewModel.onConsentResult(
+                        ok = result.resultCode == RESULT_OK,
+                        data = result.data,
+                    )
                 }
 
                 // Keyed on the state instance, so the consent screen is launched

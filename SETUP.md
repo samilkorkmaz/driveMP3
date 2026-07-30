@@ -37,16 +37,32 @@ Under **Test users** add `<test-user-google-account>` — the same address in al
 | --- | --- |
 | Application type | **Android** |
 | Package name | `com.drivemp3.player` |
-| SHA-1 certificate fingerprint | `F0:32:86:5C:3E:39:58:32:0F:16:BA:2A:2A:3F:CE:50:E8:91:FC:DD` |
+| SHA-1 certificate fingerprint | *your machine's debug SHA-1 — see below* |
 
-> Note that it is ok to leave SHA-1 certificate fingerprint in this document and publish it in public repo because the fingerprint is a hash of your signing certificate, not the private key, and the certificate ships inside every APK you build. Anyone holding your APK can already read it. So publishing it discloses nothing that distribution wouldn't.
+> Note that it is ok to leave SHA-1 certificate fingerprints in this document and publish them in a public repo because the fingerprint is a hash of your signing certificate, not the private key, and the certificate ships inside every APK you build. Anyone holding your APK can already read it. So publishing it discloses nothing that distribution wouldn't.
 
-That SHA-1 is this machine's debug keystore, read from
-`%USERPROFILE%\.android\debug.keystore`. To re-derive it later:
+> **The debug SHA-1 is per machine, not per project.** Each machine has its own
+> `%USERPROFILE%\.android\debug.keystore`, so a debug build made on one machine has a
+> *different* SHA-1 from a build of the same source on another. Play Services matches
+> the app by package name **+ signing certificate**, so a build whose SHA-1 isn't
+> registered is silently denied — the account picker runs, then it drops back to the
+> sign-in screen (see [Troubleshooting](#6-troubleshooting)). An OAuth client can hold
+> **several** SHA-1s, so add each machine's fingerprint rather than replacing.
+
+Known debug fingerprints for this project (add all that apply):
+
+| Machine (`%USERPROFILE%`) | Debug SHA-1 |
+| --- | --- |
+| `C:\Users\OEM` | `F0:32:86:5C:3E:39:58:32:0F:16:BA:2A:2A:3F:CE:50:E8:91:FC:DD` |
+| `C:\Users\MSI` | `DA:AF:EE:19:BA:2A:73:DC:75:5C:66:A7:C1:20:D6:44:E1:93:00:8E` |
+
+To read the SHA-1 for the machine you're on now:
 
 ```
 ./gradlew signingReport
 ```
+
+Use the `SHA1` line under `Variant: debug` (store `…\.android\debug.keystore`).
 
 **No client ID goes into the app.** Play Services matches the app by package name +
 signing certificate, so there is no `google-services.json` and nothing to paste back
@@ -100,6 +116,32 @@ mechanism — both keep working with no network at all.
 Step 12 is a local sign-out: it drops the in-memory token but leaves the Google-side
 grant intact, which is why consent does not reappear. Real revocation ships with the
 Settings screen in v0.6.
+
+---
+
+## 6. Troubleshooting
+
+### Sign-in bounces straight back to the sign-in screen
+
+You tap **Sign in with Google**, pick your account, and land back on the sign-in
+screen with no library and (before this was fixed) no message. The app now shows an
+error with a **Try again** button instead of silently returning — read that message,
+it names the likely cause. The two usual causes:
+
+1. **SHA-1 not registered.** The build's signing certificate isn't in the OAuth
+   client. This is the default outcome on a **new machine** (its debug keystore has a
+   different SHA-1) or a fresh CI checkout. Fix: run `./gradlew signingReport`, copy
+   the debug `SHA1`, and add it to the Android OAuth client under
+   **Credentials → your Android client → Add fingerprint** (see [section 3](#3-android-oauth-client)).
+   Changes take a few minutes to propagate. Then uninstall the app from the
+   emulator, reinstall, and try again.
+
+2. **Account isn't a test user.** The OAuth consent screen is in **Testing** mode, so
+   only accounts listed under **OAuth consent screen → Test users** may sign in. Add
+   the exact address you're signing in with.
+
+Also confirm the emulator image includes **Google Play** (a *Play Store* system
+image, not plain AOSP) — without Play Services, authorization fails immediately.
 
 ---
 

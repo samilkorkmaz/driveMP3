@@ -20,6 +20,8 @@ import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
 import com.drivemp3.player.playback.PlaybackController
 import com.drivemp3.player.playback.PlaybackState
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -213,28 +215,37 @@ class LibraryViewModel(
                     }
                 }
             } catch (e: Exception) {
-                session.update {
-                    it.copy(
-                        auth = AuthPhase.Failed(
-                            e.message ?: "Could not reach Google sign-in."
-                        )
-                    )
-                }
+                session.update { it.copy(auth = AuthPhase.Failed(authErrorMessage(e))) }
             }
         }
     }
 
-    fun onConsentResult(data: Intent?) {
-        val token = runCatching { auth.onConsentResult(data) }.getOrNull()
-        if (token == null) {
-            session.update { it.copy(auth = AuthPhase.SignedOut) }
+    /**
+     * Result of the consent screen. [ok] is the activity result code: a plain user
+     * cancel returns to the sign-in screen silently, but a failure that came back OK
+     * — or an [ApiException] that isn't a cancel — is surfaced as [AuthPhase.Failed]
+     * rather than swallowed. A cert/SHA-1 mismatch is exactly that case: the picker
+     * runs, then authorization is denied with no token, which used to look like a
+     * silent bounce back to sign-in.
+     */
+    fun onConsentResult(ok: Boolean, data: Intent?) {
+        val attempt = runCatching { auth.onConsentResult(data) }
+        attempt.getOrNull()?.let { token ->
+            viewModelScope.launch { onAuthorized(token) }
             return
         }
-        viewModelScope.launch { onAuthorized(token) }
-    }
 
-    fun onConsentCancelled() {
-        session.update { it.copy(auth = AuthPhase.SignedOut) }
+        val error = attempt.exceptionOrNull()
+        val cancelled = (!ok && error == null) ||
+            (error is ApiException && error.statusCode == CommonStatusCodes.CANCELED)
+
+        session.update {
+            if (cancelled) {
+                it.copy(auth = AuthPhase.SignedOut)
+            } else {
+                it.copy(auth = AuthPhase.Failed(authErrorMessage(error)))
+            }
+        }
     }
 
     fun signOut() {
@@ -305,6 +316,29 @@ class LibraryViewModel(
     override fun onCleared() {
         super.onCleared()
         playbackController.release()
+    }
+
+    /**
+     * Turns an authorization failure into something the user can act on. A
+     * [CommonStatusCodes.DEVELOPER_ERROR] almost always means this build's signing
+     * certificate SHA-1 (or package name) isn't registered in the Google Cloud OAuth
+     * client — the single most common cause of "the picker runs, then it bounces back
+     * to sign-in". Everything actionable points at SETUP.md.
+     */
+    private fun authErrorMessage(error: Throwable?): String = when {
+        error is ApiException && error.statusCode == CommonStatusCodes.DEVELOPER_ERROR ->
+            "Sign-in is misconfigured: this build's signing certificate (SHA-1) is not " +
+                "registered in the Google Cloud OAuth client, or the package name doesn't " +
+                "match. See SETUP.md."
+
+        error is ApiException ->
+            "Google sign-in failed (code ${error.statusCode}). If it keeps returning to " +
+                "this screen, check the SHA-1 and test-user setup in SETUP.md."
+
+        error is IOException ->
+            "Couldn't reach Google. Check your connection and try again."
+
+        else -> error?.message ?: "Sign-in didn't complete. See SETUP.md if it persists."
     }
 
     private suspend fun onAuthorized(accessToken: String) {
