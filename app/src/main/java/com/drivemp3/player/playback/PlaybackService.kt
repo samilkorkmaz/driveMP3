@@ -26,7 +26,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -47,10 +49,19 @@ class PlaybackService : MediaSessionService() {
 
     private lateinit var auth: DriveAuthManager
     private lateinit var settingsStore: SettingsStore
+    private lateinit var mediaCache: MediaCache
     private lateinit var dataSourceFactory: DriveHttpDataSourceFactory
 
     private var mediaSession: MediaSession? = null
     private var recovery: Job? = null
+    private var cacheWatcher: Job? = null
+
+    /**
+     * The track the cache watcher is following. Held rather than read from the player at
+     * transition time, because by then the player already reports the *new* item and the
+     * outgoing one — the one that may have just finished downloading — would be lost.
+     */
+    private var currentCacheKey: String? = null
 
     /**
      * Guards against a refresh loop: if a fresh token does not clear the 401, the
@@ -64,11 +75,17 @@ class PlaybackService : MediaSessionService() {
 
         auth = ServiceLocator.authManager(this)
         settingsStore = ServiceLocator.settingsStore(this)
+        mediaCache = ServiceLocator.mediaCache(this)
         dataSourceFactory = DriveHttpDataSourceFactory { auth.currentToken() }
+
+        // The cache wraps the network source rather than sitting beside it, so the
+        // first play streams and downloads in one read (FR-3.2.1) and every later play
+        // is served from disk without a request.
+        val cachingFactory = mediaCache.dataSourceFactory(dataSourceFactory)
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory())
+                DefaultMediaSourceFactory(cachingFactory, extractorsFactory())
             )
             // handleAudioFocus: pause for a phone call, duck for a notification, and
             // stop when another player takes over for good.
@@ -79,7 +96,10 @@ class PlaybackService : MediaSessionService() {
             // the lock while actually playing.
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
-            .apply { addListener(AuthRecoveryListener()) }
+            .apply {
+                addListener(AuthRecoveryListener())
+                addListener(CacheSyncListener())
+            }
 
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(UriResolvingCallback())
@@ -105,6 +125,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         recovery?.cancel()
+        stopCacheWatcher()
         scope.cancel()
         mediaSession?.run {
             player.release()
@@ -129,9 +150,74 @@ class PlaybackService : MediaSessionService() {
             mediaItems: List<MediaItem>,
         ): ListenableFuture<List<MediaItem>> = Futures.immediateFuture(
             mediaItems.map { item ->
-                item.buildUpon().setUri(DriveApi.mediaUrl(item.mediaId)).build()
+                item.buildUpon()
+                    .setUri(DriveApi.mediaUrl(item.mediaId))
+                    // Keys the cache by Drive file id rather than by URL. It keeps
+                    // cached files findable by id for the badge, and survives any later
+                    // change to the URL's shape.
+                    .setCustomCacheKey(item.mediaId)
+                    .build()
             }
         )
+    }
+
+    /**
+     * Keeps the cache mirror current while a track streams (FR-3.2.4).
+     *
+     * A track becomes fully cached at the moment ExoPlayer reads its final byte, and
+     * the player has no callback for that — so this polls, cheaply: completeness is an
+     * in-memory span lookup, not disk I/O. Polling only runs while something is playing,
+     * and stops as soon as the current track is confirmed complete.
+     *
+     * Transitions and pauses sync directly rather than waiting for the next tick, so
+     * the badge appears the moment a track finishes.
+     */
+    private inner class CacheSyncListener : Player.Listener {
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) startCacheWatcher() else stopCacheWatcher()
+            syncCurrentTrack()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // Both ends of the transition: the track just left behind is the one most
+            // likely to have just completed, and the incoming one may already be cached
+            // from an earlier play.
+            val outgoing = currentCacheKey
+            currentCacheKey = mediaItem?.mediaId?.takeIf { it.isNotEmpty() }
+            val incoming = currentCacheKey
+
+            scope.launch {
+                outgoing?.let { mediaCache.sync(it) }
+                incoming?.let { mediaCache.sync(it) }
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) syncCurrentTrack()
+        }
+    }
+
+    private fun startCacheWatcher() {
+        if (cacheWatcher?.isActive == true) return
+        cacheWatcher = scope.launch {
+            while (isActive) {
+                delay(CACHE_POLL_MS)
+                syncCurrentTrack()
+            }
+        }
+    }
+
+    private fun stopCacheWatcher() {
+        cacheWatcher?.cancel()
+        cacheWatcher = null
+    }
+
+    private fun syncCurrentTrack() {
+        val fileId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+        if (fileId.isEmpty()) return
+        currentCacheKey = fileId
+        scope.launch { mediaCache.sync(fileId) }
     }
 
     /**
@@ -210,4 +296,14 @@ class PlaybackService : MediaSessionService() {
      */
     private fun extractorsFactory() = DefaultExtractorsFactory()
         .setConstantBitrateSeekingEnabled(true)
+
+    private companion object {
+        /**
+         * Slow on purpose. Nothing depends on the badge being instant, and the exact
+         * moment of completion is caught by the transition and end-of-track syncs
+         * anyway; this only covers a track that finishes downloading well before it
+         * finishes playing.
+         */
+        const val CACHE_POLL_MS = 5_000L
+    }
 }

@@ -18,6 +18,7 @@ import com.drivemp3.player.data.local.TrackEntity
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
+import com.drivemp3.player.playback.MediaCache
 import com.drivemp3.player.playback.PlaybackConnection
 import com.drivemp3.player.playback.PlaybackState
 import com.google.android.gms.common.api.ApiException
@@ -54,6 +55,8 @@ sealed interface LibraryUiState {
         val sortOrder: SortOrder,
         /** Already filtered by [searchQuery]; the UI renders these as-is. */
         val tracks: List<TrackEntity>,
+        /** Ids held complete on disk — the "Downloaded" badge (FR-3.2.4). */
+        val downloadedTrackIds: Set<String>,
         val searchQuery: String,
         val isRefreshing: Boolean,
         /** A failed refresh: shown as a banner without discarding the indexed list. */
@@ -69,6 +72,7 @@ class LibraryViewModel(
     private val trackRepository: TrackRepository,
     private val driveRepository: DriveRepository,
     private val playbackConnection: PlaybackConnection,
+    private val mediaCache: MediaCache,
 ) : ViewModel() {
 
     /** Auth phase plus the incidental per-session fields, kept in one flow. */
@@ -127,18 +131,21 @@ class LibraryViewModel(
                         // Rendered straight from the local index, so this emits
                         // immediately even while a refresh is still in flight, and
                         // re-queries per keystroke without touching the network.
-                        trackRepository.observeTracks(scope, sortOrder, searchQuery)
-                            .map { tracks ->
-                                LibraryUiState.Content(
-                                    email = session.email,
-                                    scope = scope,
-                                    sortOrder = sortOrder,
-                                    tracks = tracks,
-                                    searchQuery = searchQuery,
-                                    isRefreshing = session.isRefreshing,
-                                    refreshError = session.refreshError,
-                                )
-                            }
+                        combine(
+                            trackRepository.observeTracks(scope, sortOrder, searchQuery),
+                            trackRepository.observeDownloadedIds(),
+                        ) { tracks, downloadedIds ->
+                            LibraryUiState.Content(
+                                email = session.email,
+                                scope = scope,
+                                sortOrder = sortOrder,
+                                tracks = tracks,
+                                downloadedTrackIds = downloadedIds,
+                                searchQuery = searchQuery,
+                                isRefreshing = session.isRefreshing,
+                                refreshError = session.refreshError,
+                            )
+                        }
                     }
             }
         }
@@ -411,7 +418,19 @@ class LibraryViewModel(
     private suspend fun refreshNow(accessToken: String, scope: LibraryScope) {
         session.update { it.copy(isRefreshing = true, refreshError = null) }
         try {
-            trackRepository.refresh(accessToken, scope, settingsStore.sortOrder.first())
+            val indexedIds =
+                trackRepository.refresh(accessToken, scope, settingsStore.sortOrder.first())
+
+            // Recovers badges for anything downloaded in an earlier session. The service
+            // keeps the mirror current while tracks play; this is the cold-start path,
+            // and it matters most right after a destructive schema change, which wipes
+            // the mirror without deleting a single cached byte.
+            //
+            // Deliberately driven by the refresh rather than by the visible track list:
+            // reconciling writes to the same table the list observes, and hanging it off
+            // that flow would feed back into itself.
+            mediaCache.reconcile(indexedIds)
+
             session.update { it.copy(isRefreshing = false, refreshError = null) }
         } catch (e: HttpException) {
             if (e.code() == 401 || e.code() == 403) {
@@ -453,6 +472,7 @@ class LibraryViewModel(
                     // the ViewModel. What it binds to — the service and its player —
                     // is what lives for the process lifetime now.
                     playbackConnection = PlaybackConnection(appContext),
+                    mediaCache = ServiceLocator.mediaCache(appContext),
                 )
             }
         }

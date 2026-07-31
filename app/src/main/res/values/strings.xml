@@ -43,6 +43,9 @@
     <!-- Row indicator. Not "Now playing": it marks the loaded track, paused or not. -->
     <string name="current_track">Current track</string>
 
+    <!-- Cache (FR-3.2.4). Shown only when the whole file is on disk. -->
+    <string name="downloaded">Downloaded</string>
+
     <plurals name="track_count">
         <item quantity="one">%d MP3 file</item>
         <item quantity="other">%d MP3 files</item>

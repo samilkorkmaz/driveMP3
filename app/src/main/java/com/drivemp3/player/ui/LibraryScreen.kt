@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -246,6 +249,7 @@ private fun LibraryContent(
 
         TrackList(
             tracks = state.tracks,
+            downloadedTrackIds = state.downloadedTrackIds,
             playingTrackId = playingTrackId,
             onTrackClick = onTrackClick,
         )
@@ -362,6 +366,7 @@ private fun SortBar(
 @Composable
 private fun TrackList(
     tracks: List<TrackEntity>,
+    downloadedTrackIds: Set<String>,
     playingTrackId: String?,
     onTrackClick: (TrackEntity) -> Unit,
     modifier: Modifier = Modifier,
@@ -369,16 +374,18 @@ private fun TrackList(
     LazyColumn(modifier = modifier.fillMaxSize()) {
         items(items = tracks, key = { "${it.scopeId}:${it.id}" }) { track ->
             val isCurrent = track.id == playingTrackId
+            val isDownloaded = track.id in downloadedTrackIds
 
             ListItem(
                 modifier = Modifier.clickable { onTrackClick(track) },
+                leadingContent = { DownloadedBadge(isDownloaded = isDownloaded) },
                 headlineContent = {
                     Text(
                         text = track.name,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        // Colour rather than a badge: the leading slot is reserved for
-                        // v0.5's "Downloaded" indicator (FR-3.2.4).
+                        // Colour, not an icon: the leading slot belongs to the
+                        // "Downloaded" badge.
                         color = if (isCurrent) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -405,3 +412,27 @@ private fun TrackList(
         }
     }
 }
+
+/**
+ * FR-3.2.4's "Downloaded" indicator: shown only when the whole file is on disk.
+ *
+ * Occupies its slot whether or not it is lit — an icon that appears and disappears
+ * would shift every title sideways as tracks finish downloading. Undownloaded rows get
+ * a same-sized spacer instead.
+ */
+@Composable
+private fun DownloadedBadge(isDownloaded: Boolean, modifier: Modifier = Modifier) {
+    if (!isDownloaded) {
+        Spacer(modifier = modifier.size(BadgeSize))
+        return
+    }
+    Icon(
+        imageVector = Icons.Default.CheckCircle,
+        contentDescription = stringResource(R.string.downloaded),
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = modifier.size(BadgeSize),
+    )
+}
+
+/** Material's default icon size; the spacer has to match it exactly to align rows. */
+private val BadgeSize = 24.dp

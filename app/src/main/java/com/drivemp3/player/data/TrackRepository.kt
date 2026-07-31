@@ -1,5 +1,6 @@
 package com.drivemp3.player.data
 
+import com.drivemp3.player.data.local.CachedFileDao
 import com.drivemp3.player.data.local.TrackDao
 import com.drivemp3.player.data.local.TrackEntity
 import com.drivemp3.player.model.LibraryScope
@@ -7,6 +8,7 @@ import com.drivemp3.player.model.SortDirection
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.OffsetDateTime
 
 /**
@@ -20,7 +22,18 @@ import java.time.OffsetDateTime
 class TrackRepository(
     private val driveRepository: DriveRepository,
     private val trackDao: TrackDao,
+    private val cachedFileDao: CachedFileDao,
 ) {
+
+    /**
+     * Ids of tracks held complete on disk, for the "Downloaded" badge (FR-3.2.4).
+     *
+     * Kept as its own flow rather than joined into [observeTracks]: cache state changes
+     * on a completely different cadence from the library index, and combining them in
+     * SQL would re-run the sorted track query every time a download finished.
+     */
+    fun observeDownloadedIds(): Flow<Set<String>> =
+        cachedFileDao.observeCachedIds().map { it.toSet() }
 
     /**
      * @param nameQuery prefix to match against file names, case-insensitively.
@@ -49,12 +62,17 @@ class TrackRepository(
     suspend fun isScopeIndexed(scope: LibraryScope): Boolean =
         trackDao.countInScope(scope.storageKey) > 0
 
-    /** Fetches every page for [scope] and swaps the indexed rows atomically. */
+    /**
+     * Fetches every page for [scope] and swaps the indexed rows atomically.
+     *
+     * @return the Drive file ids now indexed, which the caller uses to reconcile the
+     *   download badges against what is actually on disk.
+     */
     suspend fun refresh(
         accessToken: String,
         scope: LibraryScope,
         sortOrder: SortOrder,
-    ): Int {
+    ): List<String> {
         val files = driveRepository.fetchMp3Files(
             accessToken = accessToken,
             scope = scope,
@@ -63,7 +81,7 @@ class TrackRepository(
 
         val entities = files.map { file -> file.toEntity(scope.storageKey) }
         trackDao.replaceScope(scope.storageKey, entities)
-        return entities.size
+        return entities.map { it.id }
     }
 
     companion object {

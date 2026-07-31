@@ -8,6 +8,7 @@ import com.drivemp3.player.data.DriveRepository
 import com.drivemp3.player.data.SettingsStore
 import com.drivemp3.player.data.TrackRepository
 import com.drivemp3.player.data.local.DriveMp3Database
+import com.drivemp3.player.playback.MediaCache
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -53,6 +54,19 @@ object ServiceLocator {
     @Volatile private var authManagerInstance: DriveAuthManager? = null
     @Volatile private var trackRepositoryInstance: TrackRepository? = null
     @Volatile private var settingsStoreInstance: SettingsStore? = null
+    @Volatile private var mediaCacheInstance: MediaCache? = null
+
+    /**
+     * Necessarily a process-wide singleton: `SimpleCache` locks its directory and
+     * throws if a second instance is opened on the same one.
+     */
+    fun mediaCache(context: Context): MediaCache =
+        mediaCacheInstance ?: synchronized(this) {
+            mediaCacheInstance ?: MediaCache(
+                context = context.applicationContext,
+                dao = database(context).cachedFileDao(),
+            ).also { mediaCacheInstance = it }
+        }
 
     fun authManager(context: Context): DriveAuthManager =
         authManagerInstance ?: synchronized(this) {
@@ -69,6 +83,7 @@ object ServiceLocator {
             trackRepositoryInstance ?: TrackRepository(
                 driveRepository = driveRepository,
                 trackDao = database(context).trackDao(),
+                cachedFileDao = database(context).cachedFileDao(),
             ).also { trackRepositoryInstance = it }
         }
 
