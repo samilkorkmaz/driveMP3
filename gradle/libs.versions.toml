@@ -1,8 +1,8 @@
 [versions]
 # 8.6.x is the newest AGP that Android Studio Koala Feature Drop (2024.1.2)
 # supports. Safe to raise once Studio is updated: AGP 8.7+ needs Ladybug (2024.2.1).
-agp = "8.6.1"
-kotlin = "2.1.0"
+agp = "9.3.1"
+kotlin = "2.2.10"
 coreKtx = "1.15.0"
 activityCompose = "1.9.3"
 lifecycle = "2.8.7"
@@ -13,7 +13,7 @@ okhttp = "4.12.0"
 serializationJson = "1.7.3"
 playServicesAuth = "21.3.0"
 coroutines = "1.9.0"
-ksp = "2.1.0-1.0.29"
+ksp = "2.3.2"
 room = "2.7.1"
 datastore = "1.1.1"
 media3 = "1.5.1"
