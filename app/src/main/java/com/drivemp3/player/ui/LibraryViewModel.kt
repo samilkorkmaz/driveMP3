@@ -18,7 +18,7 @@ import com.drivemp3.player.data.local.TrackEntity
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
-import com.drivemp3.player.playback.PlaybackController
+import com.drivemp3.player.playback.PlaybackConnection
 import com.drivemp3.player.playback.PlaybackState
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -67,7 +68,7 @@ class LibraryViewModel(
     private val settingsStore: SettingsStore,
     private val trackRepository: TrackRepository,
     private val driveRepository: DriveRepository,
-    private val playbackController: PlaybackController,
+    private val playbackConnection: PlaybackConnection,
 ) : ViewModel() {
 
     /** Auth phase plus the incidental per-session fields, kept in one flow. */
@@ -152,10 +153,10 @@ class LibraryViewModel(
      * and folding it into the library state would re-emit the whole track list at that
      * rate.
      */
-    val playback: StateFlow<PlaybackState> = playbackController.state
+    val playback: StateFlow<PlaybackState> = playbackConnection.state
 
     /** Just enough of [playback] to highlight a row, so the list settles between tracks. */
-    val playingTrackId: StateFlow<String?> = playbackController.state
+    val playingTrackId: StateFlow<String?> = playbackConnection.state
         .map { it.trackId }
         .distinctUntilChanged()
         .stateIn(
@@ -167,6 +168,38 @@ class LibraryViewModel(
     init {
         resumeSessionIfAlreadyGranted()
         refreshWhenTokenOrScopeChanges()
+        keepQueueMatchingTheVisibleList()
+    }
+
+    /**
+     * Keeps skip and shuffle moving through the library *as currently sorted and
+     * filtered* (FR-3.4.3), rather than through a snapshot taken when playback began.
+     *
+     * Re-sorting or narrowing the search therefore re-points the queue.
+     * [PlaybackConnection.updateQueue] does it without interrupting audio, and ignores
+     * a list that no longer contains the playing track.
+     *
+     * Subscribed only while a track is loaded — which is exactly when a queue exists to
+     * correct. Collecting [state] unconditionally would give it a permanent subscriber
+     * and quietly cancel out its `WhileSubscribed` sharing.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun keepQueueMatchingTheVisibleList() {
+        viewModelScope.launch {
+            playbackConnection.state
+                .map { it.hasTrack }
+                .distinctUntilChanged()
+                .flatMapLatest { hasTrack ->
+                    if (!hasTrack) {
+                        emptyFlow()
+                    } else {
+                        state
+                            .map { (it as? LibraryUiState.Content)?.tracks.orEmpty() }
+                            .distinctUntilChanged()
+                    }
+                }
+                .collect { tracks -> playbackConnection.updateQueue(tracks) }
+        }
     }
 
     /**
@@ -250,8 +283,9 @@ class LibraryViewModel(
 
     fun signOut() {
         // Before the token is dropped: the stream would fail on its next range
-        // request anyway, and a bar still ticking after sign-out looks broken.
-        playbackController.stop()
+        // request anyway, and a notification still ticking after sign-out — now that
+        // the service outlives this screen — would be worse than broken.
+        playbackConnection.stopPlayback()
         auth.clearToken()
         searchQuery.value = ""
         session.value = Session()
@@ -295,27 +329,52 @@ class LibraryViewModel(
     }
 
     /**
-     * Streams the tapped track (FR-3.4.1). Requires a live token: the player's
-     * `DataSource` reads it synchronously, so a track tapped before authorization
-     * finished would 401 on its very first request.
+     * Streams the tapped track (FR-3.4.1), handing the player the whole visible list so
+     * skip has somewhere to go.
+     *
+     * Requires a live token: the service's `DataSource` reads it synchronously, so a
+     * track tapped before authorization finished would 401 on its very first request.
      */
     fun onTrackClick(track: TrackEntity) {
         if (session.value.auth !is AuthPhase.Authorized) return
-        playbackController.play(trackId = track.id, trackName = track.name)
+        val queue = (state.value as? LibraryUiState.Content)?.tracks.orEmpty()
+        playbackConnection.play(track = track, queue = queue)
     }
 
-    fun togglePlayPause() = playbackController.togglePlayPause()
+    fun togglePlayPause() = playbackConnection.togglePlayPause()
 
-    fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
+    fun seekTo(positionMs: Long) = playbackConnection.seekTo(positionMs)
+
+    fun skipToNext() = playbackConnection.skipToNext()
+
+    fun skipToPrevious() = playbackConnection.skipToPrevious()
 
     /**
-     * v0.3 is foreground-only, so the player dies with the screen that owns it —
-     * surviving rotation, because the ViewModel does, but not the task being closed.
-     * Background playback and its `MediaSessionService` are v0.4.
+     * FR-3.4.2. Applied to the session immediately so the toggle never lags, and
+     * persisted so the choice survives a relaunch — [PlaybackService] reads the stored
+     * value back when a media button revives it with no UI attached.
+     */
+    fun toggleRepeatOne() {
+        val enabled = !playback.value.repeatOne
+        playbackConnection.setRepeatOne(enabled)
+        viewModelScope.launch { settingsStore.setRepeatOne(enabled) }
+    }
+
+    /** FR-3.4.3, persisted on the same terms as [toggleRepeatOne]. */
+    fun toggleShuffle() {
+        val enabled = !playback.value.shuffle
+        playbackConnection.setShuffle(enabled)
+        viewModelScope.launch { settingsStore.setShuffle(enabled) }
+    }
+
+    /**
+     * Releases the binding to the session, not the player. Audio deliberately survives
+     * this — the service holds it, and the notification stays live so the user can get
+     * back or stop it.
      */
     override fun onCleared() {
         super.onCleared()
-        playbackController.release()
+        playbackConnection.release()
     }
 
     /**
@@ -390,12 +449,10 @@ class LibraryViewModel(
                     settingsStore = ServiceLocator.settingsStore(appContext),
                     trackRepository = ServiceLocator.trackRepository(appContext),
                     driveRepository = ServiceLocator.driveRepository,
-                    // Not from ServiceLocator: this one is owned and released by the
-                    // ViewModel, not shared for the process lifetime.
-                    playbackController = PlaybackController(
-                        context = appContext,
-                        auth = ServiceLocator.authManager(appContext),
-                    ),
+                    // Not from ServiceLocator: the binding is owned and released by
+                    // the ViewModel. What it binds to — the service and its player —
+                    // is what lives for the process lifetime now.
+                    playbackConnection = PlaybackConnection(appContext),
                 )
             }
         }

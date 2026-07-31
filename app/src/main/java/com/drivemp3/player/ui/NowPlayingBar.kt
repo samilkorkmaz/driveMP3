@@ -13,6 +13,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -33,19 +35,22 @@ import com.drivemp3.player.R
 import com.drivemp3.player.playback.PlaybackState
 
 /**
- * The now-playing bar from spec section 4: title, elapsed/total, scrubber, play/pause.
+ * The now-playing bar from spec section 4: title, elapsed/total, scrubber, and the
+ * full transport row.
  *
- * Skip, loop, and shuffle are v0.4; the transport row is laid out centred so they can
- * be added either side of play/pause without moving it.
- *
- * Renders nothing until a track has been loaded — an empty bar on a fresh launch would
- * be dead space.
+ * Renders nothing until the queue holds something — an empty bar on a fresh launch
+ * would be dead space. Because the player outlives the Activity, reopening the app
+ * mid-track brings this back already populated.
  */
 @Composable
 fun NowPlayingBar(
     state: PlaybackState,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onToggleRepeatOne: () -> Unit,
+    onToggleShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (!state.hasTrack) return
@@ -76,20 +81,102 @@ fun NowPlayingBar(
 
             SeekRow(state = state, onSeek = onSeek)
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PlayPauseButton(
-                    isPlaying = state.isPlaying,
-                    isBuffering = state.isBuffering,
-                    onClick = onTogglePlayPause,
-                )
-            }
+            TransportRow(
+                state = state,
+                onTogglePlayPause = onTogglePlayPause,
+                onSkipNext = onSkipNext,
+                onSkipPrevious = onSkipPrevious,
+                onToggleRepeatOne = onToggleRepeatOne,
+                onToggleShuffle = onToggleShuffle,
+            )
         }
+    }
+}
+
+/**
+ * The control row from spec section 4: `[|<] [> / ||] [>|] [Loop 1] [Shuffle]`.
+ *
+ * Play/pause is centred and the mode toggles sit outside the skip buttons, so the
+ * primary control stays under the thumb where it was in v0.3.
+ */
+@Composable
+private fun TransportRow(
+    state: PlaybackState,
+    onTogglePlayPause: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onToggleRepeatOne: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ModeToggle(
+            checked = state.repeatOne,
+            iconRes = R.drawable.ic_repeat_one_24,
+            labelRes = R.string.loop_one,
+            onCheckedChange = { onToggleRepeatOne() },
+        )
+
+        IconButton(onClick = onSkipPrevious, enabled = state.hasPrevious) {
+            Icon(
+                painter = painterResource(R.drawable.ic_skip_previous_24),
+                contentDescription = stringResource(R.string.skip_previous),
+            )
+        }
+
+        PlayPauseButton(
+            isPlaying = state.isPlaying,
+            isBuffering = state.isBuffering,
+            onClick = onTogglePlayPause,
+        )
+
+        IconButton(onClick = onSkipNext, enabled = state.hasNext) {
+            Icon(
+                painter = painterResource(R.drawable.ic_skip_next_24),
+                contentDescription = stringResource(R.string.skip_next),
+            )
+        }
+
+        ModeToggle(
+            checked = state.shuffle,
+            iconRes = R.drawable.ic_shuffle_24,
+            labelRes = R.string.shuffle,
+            onCheckedChange = { onToggleShuffle() },
+        )
+    }
+}
+
+/**
+ * A latching toggle for loop and shuffle.
+ *
+ * Uses colour to signal state — the accessibility story is carried by
+ * [IconToggleButton]'s own checked semantics, which screen readers announce, so the
+ * content description stays the plain feature name rather than encoding on/off.
+ */
+@Composable
+private fun ModeToggle(
+    checked: Boolean,
+    iconRes: Int,
+    labelRes: Int,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconToggleButton(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = stringResource(labelRes),
+            tint = if (checked) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
 

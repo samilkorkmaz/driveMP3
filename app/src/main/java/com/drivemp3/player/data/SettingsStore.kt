@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.drivemp3.player.model.LibraryScope
+import com.drivemp3.player.model.PlaybackModes
 import com.drivemp3.player.model.SortDirection
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
@@ -20,7 +22,11 @@ import java.io.IOException
 private val Context.settingsDataStore: DataStore<Preferences> by
     preferencesDataStore(name = "drivemp3_settings")
 
-/** Persisted user choices: which folder the library covers, and how it is sorted. */
+/**
+ * Persisted user choices: which folder the library covers, how it is sorted, and the
+ * loop/shuffle modes. Notably *not* the search query — see
+ * [com.drivemp3.player.ui.LibraryViewModel].
+ */
 class SettingsStore(context: Context) {
 
     private val dataStore = context.applicationContext.settingsDataStore
@@ -53,6 +59,23 @@ class SettingsStore(context: Context) {
         }
         .distinctUntilChanged()
 
+    val playbackModes: Flow<PlaybackModes> = preferences
+        .map { prefs ->
+            PlaybackModes(
+                repeatOne = prefs[Keys.RepeatOne] ?: false,
+                shuffle = prefs[Keys.Shuffle] ?: false,
+            )
+        }
+        .distinctUntilChanged()
+
+    suspend fun setRepeatOne(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.RepeatOne] = enabled }
+    }
+
+    suspend fun setShuffle(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.Shuffle] = enabled }
+    }
+
     suspend fun setLibraryScope(scope: LibraryScope) {
         dataStore.edit { prefs ->
             prefs[Keys.ScopeKey] = scope.storageKey
@@ -75,6 +98,8 @@ class SettingsStore(context: Context) {
         val ScopeFolderName = stringPreferencesKey("scope_folder_name")
         val SortField = stringPreferencesKey("sort_field")
         val SortDirection = stringPreferencesKey("sort_direction")
+        val RepeatOne = booleanPreferencesKey("repeat_one")
+        val Shuffle = booleanPreferencesKey("shuffle")
     }
 }
 

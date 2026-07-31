@@ -1,5 +1,8 @@
 package com.drivemp3.player
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.drivemp3.player.ui.FolderPickerScreen
@@ -28,9 +32,18 @@ class MainActivity : ComponentActivity() {
         LibraryViewModel.factory(applicationContext)
     }
 
+    /**
+     * Asked for once on Android 13+, and only so the media notification can appear.
+     * Playback itself does not depend on it — a denial costs the lock-screen and
+     * shade controls, nothing else — so the result is deliberately ignored.
+     */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestNotificationPermissionIfNeeded()
 
         setContent {
             DriveMp3Theme {
@@ -103,9 +116,26 @@ class MainActivity : ComponentActivity() {
                         onTrackClick = libraryViewModel::onTrackClick,
                         onTogglePlayPause = libraryViewModel::togglePlayPause,
                         onSeek = libraryViewModel::seekTo,
+                        onSkipNext = libraryViewModel::skipToNext,
+                        onSkipPrevious = libraryViewModel::skipToPrevious,
+                        onToggleRepeatOne = libraryViewModel::toggleRepeatOne,
+                        onToggleShuffle = libraryViewModel::toggleShuffle,
                     )
                 }
             }
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }

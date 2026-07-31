@@ -76,6 +76,10 @@ fun LibraryScreen(
     onTrackClick: (TrackEntity) -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onToggleRepeatOne: () -> Unit,
+    onToggleShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -104,6 +108,10 @@ fun LibraryScreen(
                 state = playback(),
                 onTogglePlayPause = onTogglePlayPause,
                 onSeek = onSeek,
+                onSkipNext = onSkipNext,
+                onSkipPrevious = onSkipPrevious,
+                onToggleRepeatOne = onToggleRepeatOne,
+                onToggleShuffle = onToggleShuffle,
             )
         },
     ) { contentPadding ->

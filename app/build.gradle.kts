@@ -14,8 +14,8 @@ android {
         applicationId = "com.drivemp3.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     buildTypes {
@@ -78,6 +78,9 @@ dependencies {
     // Media3 rather than MediaPlayer: HTTP Range-based seeking, a pluggable
     // DataSource for the bearer token, and the CacheDataSource that v0.5 needs.
     implementation(libs.androidx.media3.exoplayer)
+    // The session layer is what earns background playback: it supplies the
+    // notification, the media-button routing, and the process-lifetime player.
+    implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.datasource)
     // Declared explicitly rather than leaned on transitively: the extractor flags are

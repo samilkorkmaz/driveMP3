@@ -33,9 +33,13 @@
     <string name="sort_ascending">Ascending</string>
     <string name="sort_descending">Descending</string>
 
-    <!-- Playback (FR-3.4.1) -->
+    <!-- Playback (FR-3.4.1 – FR-3.4.3) -->
     <string name="play">Play</string>
     <string name="pause">Pause</string>
+    <string name="skip_next">Next track</string>
+    <string name="skip_previous">Previous track</string>
+    <string name="loop_one">Repeat one</string>
+    <string name="shuffle">Shuffle</string>
     <!-- Row indicator. Not "Now playing": it marks the loaded track, paused or not. -->
     <string name="current_track">Current track</string>
 
