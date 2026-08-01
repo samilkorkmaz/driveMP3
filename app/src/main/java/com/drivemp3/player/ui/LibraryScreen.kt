@@ -49,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.drivemp3.player.BuildConfig
 import com.drivemp3.player.R
 import com.drivemp3.player.data.local.TrackEntity
 import com.drivemp3.player.model.LibraryScope
@@ -89,7 +90,9 @@ fun LibraryScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = {
+                    Text(stringResource(R.string.app_name_versioned, BuildConfig.VERSION_NAME))
+                },
                 actions = {
                     if (state is LibraryUiState.Content) {
                         IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {

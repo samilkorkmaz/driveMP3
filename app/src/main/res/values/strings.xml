@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DriveMP3</string>
+    <string name="app_name_versioned">DriveMP3 v%1$s</string>
 
     <string name="sign_in">Sign in with Google</string>
     <string name="sign_out">Sign out</string>
