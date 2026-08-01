@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
@@ -37,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -374,7 +376,23 @@ private fun TrackList(
     onTrackClick: (TrackEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier = modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+
+    // Keep the playing row on screen. Matters most with shuffle, where the next
+    // track can be anywhere in the list. Only scroll when the row is off screen so
+    // we don't yank a list the user is actively scrolling.
+    LaunchedEffect(playingTrackId, tracks) {
+        val index = tracks.indexOfFirst { it.id == playingTrackId }
+        if (index < 0) return@LaunchedEffect
+
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val isVisible = visible.any { it.index == index }
+        if (!isVisible) {
+            listState.animateScrollToItem(index)
+        }
+    }
+
+    LazyColumn(state = listState, modifier = modifier.fillMaxSize()) {
         items(items = tracks, key = { "${it.scopeId}:${it.id}" }) { track ->
             val isCurrent = track.id == playingTrackId
             val isDownloaded = track.id in downloadedTrackIds
