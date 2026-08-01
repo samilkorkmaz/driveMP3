@@ -1,12 +1,15 @@
 package com.drivemp3.player.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -167,16 +170,30 @@ private fun ModeToggle(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    IconToggleButton(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = stringResource(labelRes),
-            tint = if (checked) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+    // A rectangle is drawn around the icon while it is checked, so the selected mode
+    // reads at a glance rather than relying on the tint difference alone.
+    val boxModifier = if (checked) {
+        Modifier.border(
+            width = 1.5.dp,
+            color = MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(8.dp),
         )
+    } else {
+        Modifier
+    }
+
+    IconToggleButton(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier) {
+        Box(modifier = boxModifier.padding(6.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = stringResource(labelRes),
+                tint = if (checked) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
     }
 }
 
