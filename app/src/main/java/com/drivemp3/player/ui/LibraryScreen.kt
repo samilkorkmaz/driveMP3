@@ -42,12 +42,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -268,9 +271,21 @@ private fun SearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The field owns its own text and caret. Binding `value` straight to `query` made
+    // the caret jump to the start on the first keystroke: `query` is filtered through a
+    // StateFlow and a Room query before it returns, so the field briefly recomposed with
+    // the stale, pre-keystroke value and reset the selection. Editing stays local; only
+    // the resulting string is pushed out for filtering.
+    var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(query, selection = TextRange(query.length)))
+    }
+
     OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = fieldValue,
+        onValueChange = {
+            fieldValue = it
+            onQueryChange(it.text)
+        },
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -280,8 +295,11 @@ private fun SearchField(
             Icon(imageVector = Icons.Default.Search, contentDescription = null)
         },
         trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
+            if (fieldValue.text.isNotEmpty()) {
+                IconButton(onClick = {
+                    fieldValue = TextFieldValue("")
+                    onQueryChange("")
+                }) {
                     Icon(
                         imageVector = Icons.Default.Clear,
                         contentDescription = stringResource(R.string.clear_search),
