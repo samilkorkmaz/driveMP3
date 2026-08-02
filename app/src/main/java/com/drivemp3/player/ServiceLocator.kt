@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.drivemp3.player.auth.DriveAuthManager
 import com.drivemp3.player.data.DriveApi
 import com.drivemp3.player.data.DriveRepository
+import com.drivemp3.player.data.NetworkMonitor
+import com.drivemp3.player.data.RetryInterceptor
 import com.drivemp3.player.data.SettingsStore
 import com.drivemp3.player.data.TrackRepository
 import com.drivemp3.player.data.local.DriveMp3Database
@@ -29,6 +31,8 @@ object ServiceLocator {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // Ahead of logging so a retried request is logged each attempt.
+            .addInterceptor(RetryInterceptor())
             .addInterceptor(
                 HttpLoggingInterceptor().apply {
                     // Deliberately BASIC, not HEADERS: HEADERS would print the
@@ -55,6 +59,12 @@ object ServiceLocator {
     @Volatile private var trackRepositoryInstance: TrackRepository? = null
     @Volatile private var settingsStoreInstance: SettingsStore? = null
     @Volatile private var mediaCacheInstance: MediaCache? = null
+    @Volatile private var networkMonitorInstance: NetworkMonitor? = null
+
+    fun networkMonitor(context: Context): NetworkMonitor =
+        networkMonitorInstance ?: synchronized(this) {
+            networkMonitorInstance ?: NetworkMonitor(context).also { networkMonitorInstance = it }
+        }
 
     /**
      * Necessarily a process-wide singleton: `SimpleCache` locks its directory and

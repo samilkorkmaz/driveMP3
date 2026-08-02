@@ -12,6 +12,7 @@ import com.drivemp3.player.ServiceLocator
 import com.drivemp3.player.auth.AuthResult
 import com.drivemp3.player.auth.DriveAuthManager
 import com.drivemp3.player.data.DriveRepository
+import com.drivemp3.player.data.NetworkMonitor
 import com.drivemp3.player.data.SettingsStore
 import com.drivemp3.player.data.TrackRepository
 import com.drivemp3.player.data.local.TrackEntity
@@ -66,6 +67,10 @@ sealed interface LibraryUiState {
         val freeSpaceBytes: Long,
         val searchQuery: String,
         val isRefreshing: Boolean,
+        /** No connectivity (v0.7): the list still renders, but only cached tracks play. */
+        val isOffline: Boolean,
+        /** Cached-only view (v0.7): [tracks] is filtered to downloaded files. */
+        val showDownloadedOnly: Boolean,
         /** A failed refresh: shown as a banner without discarding the indexed list. */
         val refreshError: String? = null,
     ) : LibraryUiState
@@ -90,6 +95,7 @@ class LibraryViewModel(
     private val driveRepository: DriveRepository,
     private val playbackConnection: PlaybackConnection,
     private val mediaCache: MediaCache,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     /** Auth phase plus the incidental per-session fields, kept in one flow. */
@@ -98,6 +104,8 @@ class LibraryViewModel(
         val email: String? = null,
         val isRefreshing: Boolean = false,
         val refreshError: String? = null,
+        /** No connectivity. Assumed online until the monitor says otherwise. */
+        val isOffline: Boolean = false,
     )
 
     private sealed interface AuthPhase {
@@ -115,6 +123,21 @@ class LibraryViewModel(
      * lookup, and restoring one on relaunch would look like a broken library.
      */
     private val searchQuery = MutableStateFlow("")
+
+    /**
+     * Cached-only view (v0.7). Transient like [searchQuery] — a filter that narrows the
+     * library to downloaded tracks, most useful offline, but not a setting worth
+     * restoring on relaunch.
+     */
+    private val showDownloadedOnly = MutableStateFlow(false)
+
+    /**
+     * One-shot user-facing messages surfaced as a snackbar — currently the refusal to
+     * play an undownloaded track offline. A StateFlow the UI clears via [onSnackbarShown]
+     * once shown, so a config change mid-display does not re-raise it.
+     */
+    private val _snackbarMessage = MutableStateFlow<String?>(null)
+    val snackbarMessage: StateFlow<String?> = _snackbarMessage
 
     private data class Inputs(
         val session: Session,
@@ -190,17 +213,28 @@ class LibraryViewModel(
                             trackRepository.observeTracks(scope, sortOrder, searchQuery),
                             trackRepository.observeDownloadedIds(),
                             storage,
-                        ) { tracks, downloadedIds, storage ->
+                            showDownloadedOnly,
+                        ) { tracks, downloadedIds, storage, downloadedOnly ->
+                            // The cached-only view filters here rather than in SQL: the
+                            // download set lives in a separate flow on its own cadence,
+                            // so joining it into the sorted query would re-run that query
+                            // every time a download finished.
+                            val visibleTracks =
+                                if (downloadedOnly) tracks.filter { it.id in downloadedIds }
+                                else tracks
+
                             LibraryUiState.Content(
                                 email = session.email,
                                 scope = scope,
                                 sortOrder = sortOrder,
-                                tracks = tracks,
+                                tracks = visibleTracks,
                                 downloadedTrackIds = downloadedIds,
                                 downloadedBytes = storage.downloadedBytes,
                                 freeSpaceBytes = storage.freeSpaceBytes,
                                 searchQuery = searchQuery,
                                 isRefreshing = session.isRefreshing,
+                                isOffline = session.isOffline,
+                                showDownloadedOnly = downloadedOnly,
                                 refreshError = session.refreshError,
                             )
                         }
@@ -234,6 +268,16 @@ class LibraryViewModel(
         resumeSessionIfAlreadyGranted()
         refreshWhenTokenOrScopeChanges()
         keepQueueMatchingTheVisibleList()
+        observeConnectivity()
+    }
+
+    /** Folds connectivity into the session so the library can render an offline banner. */
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            networkMonitor.isOnline.collect { online ->
+                session.update { it.copy(isOffline = !online) }
+            }
+        }
     }
 
     /**
@@ -402,8 +446,27 @@ class LibraryViewModel(
      */
     fun onTrackClick(track: TrackEntity) {
         if (session.value.auth !is AuthPhase.Authorized) return
-        val queue = (state.value as? LibraryUiState.Content)?.tracks.orEmpty()
-        playbackConnection.play(track = track, queue = queue)
+        val content = state.value as? LibraryUiState.Content ?: return
+
+        // Fail the play up front when offline and the track is not on disk (spec §5):
+        // streaming it would 404 the network layer and surface a cryptic playback error
+        // seconds later. A clear refusal now is the honest outcome.
+        if (content.isOffline && track.id !in content.downloadedTrackIds) {
+            _snackbarMessage.value =
+                "\"${track.name}\" isn't downloaded, and you're offline."
+            return
+        }
+
+        playbackConnection.play(track = track, queue = content.tracks)
+    }
+
+    /** Cached-only view toggle (v0.7). */
+    fun toggleDownloadedOnly() {
+        showDownloadedOnly.update { !it }
+    }
+
+    fun onSnackbarShown() {
+        _snackbarMessage.value = null
     }
 
     /**
@@ -527,19 +590,39 @@ class LibraryViewModel(
 
             session.update { it.copy(isRefreshing = false, refreshError = null) }
         } catch (e: HttpException) {
-            if (e.code() == 401 || e.code() == 403) {
-                // Token rejected — most likely the grant was revoked from the
-                // Google Account page while the app held a cached token.
-                auth.clearToken()
-                session.update {
-                    it.copy(
-                        auth = AuthPhase.Failed("Drive access was revoked. Sign in again."),
-                        isRefreshing = false,
-                    )
+            when (e.code()) {
+                401 -> {
+                    // Token rejected — the grant was revoked from the Google Account page
+                    // while the app held a cached token. Only 401 forces re-sign-in.
+                    auth.clearToken()
+                    session.update {
+                        it.copy(
+                            auth = AuthPhase.Failed("Drive access was revoked. Sign in again."),
+                            isRefreshing = false,
+                        )
+                    }
                 }
-            } else {
-                session.update {
-                    it.copy(isRefreshing = false, refreshError = "Drive returned HTTP ${e.code()}.")
+
+                403 -> {
+                    // Past RetryInterceptor's backoff, so either sustained rate-limiting
+                    // or an access denial — neither is fixed by signing in again, and the
+                    // indexed list is still valid, so this is a banner, not a wipe.
+                    session.update {
+                        it.copy(
+                            isRefreshing = false,
+                            refreshError = "Drive is limiting requests or denied access. " +
+                                "Try again shortly.",
+                        )
+                    }
+                }
+
+                else -> {
+                    session.update {
+                        it.copy(
+                            isRefreshing = false,
+                            refreshError = "Drive returned HTTP ${e.code()}.",
+                        )
+                    }
                 }
             }
         } catch (e: IOException) {
@@ -567,6 +650,7 @@ class LibraryViewModel(
                     // is what lives for the process lifetime now.
                     playbackConnection = PlaybackConnection(appContext),
                     mediaCache = ServiceLocator.mediaCache(appContext),
+                    networkMonitor = ServiceLocator.networkMonitor(appContext),
                 )
             }
         }

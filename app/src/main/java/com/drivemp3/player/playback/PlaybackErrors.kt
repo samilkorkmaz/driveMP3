@@ -41,10 +41,12 @@ fun PlaybackException.isAuthFailure(): Boolean =
  */
 fun PlaybackException.userMessage(): String {
     httpStatusCode()?.let { status ->
-        return if (isAuthFailure()) {
-            "Drive refused this track. Sign in again."
-        } else {
-            "Drive returned HTTP $status."
+        return when {
+            // The file was deleted on Drive but is still in the local index (spec §5).
+            // A rescan drops it; until then, say what actually happened.
+            status == 404 -> "This track is no longer on Drive. Rescan to update the list."
+            isAuthFailure() -> "Drive refused this track. Sign in again."
+            else -> "Drive returned HTTP $status."
         }
     }
     return if (causeChain().any { it is IOException }) {

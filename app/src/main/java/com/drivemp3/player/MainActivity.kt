@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
                 val playback by libraryViewModel.playback.collectAsStateWithLifecycle()
                 val playingTrackId by
                     libraryViewModel.playingTrackId.collectAsStateWithLifecycle()
+                val snackbarMessage by
+                    libraryViewModel.snackbarMessage.collectAsStateWithLifecycle()
 
                 val consentLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartIntentSenderForResult()
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
                         onSearchQueryChange = libraryViewModel::onSearchQueryChange,
                         onTrackClick = libraryViewModel::onTrackClick,
                         onClearTrack = libraryViewModel::clearTrack,
+                        onToggleDownloadedOnly = libraryViewModel::toggleDownloadedOnly,
                         onOpenSettings = { isViewingSettings = true },
                         onTogglePlayPause = libraryViewModel::togglePlayPause,
                         onSeek = libraryViewModel::seekTo,
@@ -139,6 +142,8 @@ class MainActivity : ComponentActivity() {
                         onSkipPrevious = libraryViewModel::skipToPrevious,
                         onToggleRepeatOne = libraryViewModel::toggleRepeatOne,
                         onToggleShuffle = libraryViewModel::toggleShuffle,
+                        snackbarMessage = snackbarMessage,
+                        onSnackbarShown = libraryViewModel::onSnackbarShown,
                     )
                 }
             }

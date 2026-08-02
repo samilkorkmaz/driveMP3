@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Offline resilience (v0.7): observe connectivity to fall back to a cached-only
+         view and to block plays of undownloaded tracks with no network. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Background playback (v0.4). WAKE_LOCK backs ExoPlayer's WAKE_MODE_NETWORK,
          which keeps streaming alive with the screen off. POST_NOTIFICATIONS is

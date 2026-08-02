@@ -1,7 +1,10 @@
 package com.drivemp3.player.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,11 +26,13 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +41,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -85,6 +92,7 @@ fun LibraryScreen(
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
     onClearTrack: (TrackEntity) -> Unit,
+    onToggleDownloadedOnly: () -> Unit,
     onOpenSettings: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -92,10 +100,23 @@ fun LibraryScreen(
     onSkipPrevious: () -> Unit,
     onToggleRepeatOne: () -> Unit,
     onToggleShuffle: () -> Unit,
+    snackbarMessage: String?,
+    onSnackbarShown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // One-shot messages (e.g. refusing an offline play). Shown then cleared, so it does
+    // not re-raise on the next recomposition or a config change.
+    LaunchedEffect(snackbarMessage) {
+        val message = snackbarMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        onSnackbarShown()
+    }
+
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -159,6 +180,7 @@ fun LibraryScreen(
                     onSearchQueryChange = onSearchQueryChange,
                     onTrackClick = onTrackClick,
                     onClearTrack = onClearTrack,
+                    onToggleDownloadedOnly = onToggleDownloadedOnly,
                 )
 
                 is LibraryUiState.Failed -> MessageWithAction(
@@ -182,10 +204,13 @@ private fun LibraryContent(
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
     onClearTrack: (TrackEntity) -> Unit,
+    onToggleDownloadedOnly: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         ScopeHeader(state = state, onChangeFolder = onChangeFolder)
+
+        if (state.isOffline) OfflineBanner()
 
         SearchField(
             query = state.searchQuery,
@@ -194,8 +219,10 @@ private fun LibraryContent(
 
         SortBar(
             sortOrder = state.sortOrder,
+            showDownloadedOnly = state.showDownloadedOnly,
             onSortFieldSelected = onSortFieldSelected,
             onToggleSortDirection = onToggleSortDirection,
+            onToggleDownloadedOnly = onToggleDownloadedOnly,
         )
 
         if (state.isRefreshing) {
@@ -216,12 +243,13 @@ private fun LibraryContent(
         if (state.tracks.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    // Distinguishes "this folder has no MP3s" from "your search
-                    // matched nothing", which need different user responses.
-                    text = if (state.searchQuery.isBlank()) {
-                        stringResource(R.string.empty_message)
-                    } else {
-                        stringResource(R.string.no_search_matches, state.searchQuery.trim())
+                    // Three distinct empty states, each needing a different user
+                    // response: the cached-only filter hiding everything, an unmatched
+                    // search, or a genuinely empty folder.
+                    text = when {
+                        state.showDownloadedOnly -> stringResource(R.string.no_downloaded_tracks)
+                        state.searchQuery.isBlank() -> stringResource(R.string.empty_message)
+                        else -> stringResource(R.string.no_search_matches, state.searchQuery.trim())
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
@@ -328,18 +356,25 @@ private fun ScopeHeader(
     )
 }
 
-/** The sort row from spec section 4: field selector plus a direction toggle. */
+/**
+ * The sort row from spec section 4 (field selector plus a direction toggle), with the
+ * v0.7 cached-only filter tacked on the end. Horizontally scrollable so the added chip
+ * cannot push the row past the screen edge on a narrow device.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SortBar(
     sortOrder: SortOrder,
+    showDownloadedOnly: Boolean,
     onSortFieldSelected: (SortField) -> Unit,
     onToggleSortDirection: () -> Unit,
+    onToggleDownloadedOnly: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -373,6 +408,46 @@ private fun SortBar(
                 ),
             )
         }
+
+        FilterChip(
+            selected = showDownloadedOnly,
+            onClick = onToggleDownloadedOnly,
+            label = { Text(stringResource(R.string.filter_downloaded_only)) },
+            leadingIcon = if (!showDownloadedOnly) null else {
+                {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize),
+                    )
+                }
+            },
+        )
+    }
+}
+
+/** Persistent notice that the library is running offline (spec §5). */
+@Composable
+private fun OfflineBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = stringResource(R.string.offline_banner),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
     }
 }
 

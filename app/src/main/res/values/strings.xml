@@ -75,6 +75,11 @@
     <string name="storage_device_free">%1$s free on device</string>
     <string name="clear_cache">Clear cache</string>
 
+    <!-- Offline resilience &amp; hardening (spec §5, v0.7) -->
+    <string name="offline_banner">You\'re offline. Only downloaded tracks can play.</string>
+    <string name="filter_downloaded_only">Downloaded only</string>
+    <string name="no_downloaded_tracks">No downloaded tracks yet. Play a track while online to download it.</string>
+
     <plurals name="track_count">
         <item quantity="one">%d MP3 file</item>
         <item quantity="other">%d MP3 files</item>
