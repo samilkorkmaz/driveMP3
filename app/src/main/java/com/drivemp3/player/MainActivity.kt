@@ -114,6 +114,8 @@ class MainActivity : ComponentActivity() {
                         onToggleSortDirection = libraryViewModel::toggleSortDirection,
                         onSearchQueryChange = libraryViewModel::onSearchQueryChange,
                         onTrackClick = libraryViewModel::onTrackClick,
+                        onClearTrack = libraryViewModel::clearTrack,
+                        onClearCache = libraryViewModel::clearCache,
                         onTogglePlayPause = libraryViewModel::togglePlayPause,
                         onSeek = libraryViewModel::seekTo,
                         onSkipNext = libraryViewModel::skipToNext,

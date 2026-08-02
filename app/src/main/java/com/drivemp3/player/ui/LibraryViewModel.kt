@@ -370,6 +370,33 @@ class LibraryViewModel(
         playbackConnection.play(track = track, queue = queue)
     }
 
+    /**
+     * Deletes one track's downloaded bytes (FR-3.2 cache management).
+     *
+     * Stops playback first when it is the loaded track: its bytes are about to go, and
+     * clearing them under an active read would either force a silent re-download or, when
+     * offline, fail the stream. `stopPlayback` runs on the main thread (MediaController's
+     * requirement); `remove` then hops to IO on its own.
+     */
+    fun clearTrack(track: TrackEntity) {
+        viewModelScope.launch {
+            if (playback.value.trackId == track.id) playbackConnection.stopPlayback()
+            mediaCache.remove(track.id)
+        }
+    }
+
+    /**
+     * Empties the whole download cache. Always stops playback: every cached file is being
+     * removed, so leaving the bar playing a track whose badge just vanished would be
+     * incoherent — and the loaded track's bytes may be among those going.
+     */
+    fun clearCache() {
+        viewModelScope.launch {
+            playbackConnection.stopPlayback()
+            mediaCache.clearAll()
+        }
+    }
+
     fun togglePlayPause() = playbackConnection.togglePlayPause()
 
     fun seekTo(positionMs: Long) = playbackConnection.seekTo(positionMs)

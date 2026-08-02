@@ -1,6 +1,7 @@
 package com.drivemp3.player.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +86,8 @@ fun LibraryScreen(
     onToggleSortDirection: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
+    onClearTrack: (TrackEntity) -> Unit,
+    onClearCache: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onSkipNext: () -> Unit,
@@ -107,7 +112,9 @@ fun LibraryScreen(
                             )
                         }
                         OverflowMenu(
+                            canClearCache = state.downloadedBytes > 0L,
                             onChangeFolder = onChangeFolder,
+                            onClearCache = onClearCache,
                             onSignOut = onSignOut,
                         )
                     }
@@ -153,6 +160,7 @@ fun LibraryScreen(
                     onToggleSortDirection = onToggleSortDirection,
                     onSearchQueryChange = onSearchQueryChange,
                     onTrackClick = onTrackClick,
+                    onClearTrack = onClearTrack,
                 )
 
                 is LibraryUiState.Failed -> MessageWithAction(
@@ -168,10 +176,16 @@ fun LibraryScreen(
 
 @Composable
 private fun OverflowMenu(
+    canClearCache: Boolean,
     onChangeFolder: () -> Unit,
+    onClearCache: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+
+    // Survives recomposition so the confirmation stays up through a rotation while the
+    // user is deciding whether to wipe everything.
+    var showClearConfirm by rememberSaveable { mutableStateOf(false) }
 
     IconButton(onClick = { expanded = true }) {
         Icon(
@@ -188,10 +202,43 @@ private fun OverflowMenu(
             },
         )
         DropdownMenuItem(
+            text = { Text(stringResource(R.string.clear_all_downloads)) },
+            // Nothing on disk to clear: greyed rather than hidden, so the option is
+            // still discoverable and its disabled state explains why.
+            enabled = canClearCache,
+            onClick = {
+                expanded = false
+                showClearConfirm = true
+            },
+        )
+        DropdownMenuItem(
             text = { Text(stringResource(R.string.sign_out)) },
             onClick = {
                 expanded = false
                 onSignOut()
+            },
+        )
+    }
+
+    // Wiping every download is irreversible from the UI, so it is confirmed. A single
+    // track, cleared through a two-step long-press menu, is deliberate enough not to be.
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text(stringResource(R.string.clear_all_downloads_title)) },
+            text = { Text(stringResource(R.string.clear_all_downloads_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    onClearCache()
+                }) {
+                    Text(stringResource(R.string.clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }
@@ -206,6 +253,7 @@ private fun LibraryContent(
     onToggleSortDirection: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
+    onClearTrack: (TrackEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -260,6 +308,7 @@ private fun LibraryContent(
             downloadedTrackIds = state.downloadedTrackIds,
             playingTrackId = playingTrackId,
             onTrackClick = onTrackClick,
+            onClearTrack = onClearTrack,
         )
     }
 }
@@ -399,12 +448,14 @@ private fun SortBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackList(
     tracks: List<TrackEntity>,
     downloadedTrackIds: Set<String>,
     playingTrackId: String?,
     onTrackClick: (TrackEntity) -> Unit,
+    onClearTrack: (TrackEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -428,37 +479,80 @@ private fun TrackList(
             val isCurrent = track.id == playingTrackId
             val isDownloaded = track.id in downloadedTrackIds
 
-            ListItem(
-                modifier = Modifier.clickable { onTrackClick(track) },
-                leadingContent = { DownloadedBadge(isDownloaded = isDownloaded) },
-                headlineContent = {
-                    Text(
-                        text = track.name,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        // Colour, not an icon: the leading slot belongs to the
-                        // "Downloaded" badge.
-                        color = if (isCurrent) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            Color.Unspecified
-                        },
+            TrackRow(
+                track = track,
+                isCurrent = isCurrent,
+                isDownloaded = isDownloaded,
+                onClick = { onTrackClick(track) },
+                onClearTrack = { onClearTrack(track) },
+            )
+        }
+    }
+}
+
+/**
+ * One track row. Long-pressing it opens a context menu whose only action, "Remove
+ * download", is enabled only when the track is actually on disk — a long-press on a
+ * not-yet-downloaded row still opens the menu, so the gesture never feels dead, but the
+ * disabled item shows there is nothing to clear.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackRow(
+    track: TrackEntity,
+    isCurrent: Boolean,
+    isDownloaded: Boolean,
+    onClick: () -> Unit,
+    onClearTrack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        ListItem(
+            modifier = Modifier.combinedClickable(
+                onClick = onClick,
+                onLongClick = { menuExpanded = true },
+            ),
+            leadingContent = { DownloadedBadge(isDownloaded = isDownloaded) },
+            headlineContent = {
+                Text(
+                    text = track.name,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    // Colour, not an icon: the leading slot belongs to the
+                    // "Downloaded" badge.
+                    color = if (isCurrent) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color.Unspecified
+                    },
+                )
+            },
+            supportingContent = {
+                Text(
+                    "${formatCreatedTime(track.createdTimeEpochMs)}  ·  " +
+                        formatSize(track.sizeBytes)
+                )
+            },
+            trailingContent = if (!isCurrent) null else {
+                {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = stringResource(R.string.current_track),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
-                },
-                supportingContent = {
-                    Text(
-                        "${formatCreatedTime(track.createdTimeEpochMs)}  ·  " +
-                            formatSize(track.sizeBytes)
-                    )
-                },
-                trailingContent = if (!isCurrent) null else {
-                    {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = stringResource(R.string.current_track),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                }
+            },
+        )
+
+        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.remove_download)) },
+                enabled = isDownloaded,
+                onClick = {
+                    menuExpanded = false
+                    onClearTrack()
                 },
             )
         }

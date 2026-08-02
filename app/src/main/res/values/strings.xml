@@ -49,6 +49,14 @@
     <!-- Storage summary: %1$s total downloaded size, %2$s device free space. -->
     <string name="storage_summary">%1$s downloaded · %2$s free</string>
 
+    <!-- Cache management -->
+    <string name="remove_download">Remove download</string>
+    <string name="clear_all_downloads">Clear all downloads</string>
+    <string name="clear_all_downloads_title">Clear all downloads?</string>
+    <string name="clear_all_downloads_message">This deletes every downloaded track from this device. Tracks will stream and re-download from Drive the next time you play them.</string>
+    <string name="clear">Clear</string>
+    <string name="cancel">Cancel</string>
+
     <plurals name="track_count">
         <item quantity="one">%d MP3 file</item>
         <item quantity="other">%d MP3 files</item>

@@ -99,6 +99,32 @@ class MediaCache(
      */
     fun freeSpaceBytes(): Long = appContext.filesDir.usableSpace
 
+    /**
+     * Deletes one track's downloaded bytes and its mirror row.
+     *
+     * `removeResource` drops every span for the key from disk; the caller is expected to
+     * have stopped playback of this track first, since removing bytes out from under an
+     * active read would only force a re-fetch. The DAO delete follows the disk, keeping
+     * this the same direction as [sync] and [reconcile].
+     */
+    suspend fun remove(fileId: String): Unit = withContext(Dispatchers.IO) {
+        cache.removeResource(fileId)
+        dao.deleteAll(listOf(fileId))
+    }
+
+    /**
+     * Empties the whole download cache and the mirror.
+     *
+     * `getKeys` returns a snapshot, so removing while iterating it is safe. The mirror is
+     * cleared in one statement rather than per key — it is only a mirror, and a stray row
+     * left after its bytes are gone would show a phantom "Downloaded" badge until the next
+     * reconcile.
+     */
+    suspend fun clearAll(): Unit = withContext(Dispatchers.IO) {
+        cache.keys.forEach { key -> cache.removeResource(key) }
+        dao.clear()
+    }
+
     /** Brings one file's row in line with the disk. */
     suspend fun sync(fileId: String): Unit = withContext(Dispatchers.IO) {
         val completeBytes = completeSizeOf(fileId)
