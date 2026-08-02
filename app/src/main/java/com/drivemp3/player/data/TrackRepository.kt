@@ -36,6 +36,13 @@ class TrackRepository(
         cachedFileDao.observeCachedIds().map { it.toSet() }
 
     /**
+     * Total bytes held on disk across all downloaded tracks, for the storage summary.
+     * Emits again whenever a download completes or a cached file is dropped.
+     */
+    fun observeDownloadedTotalBytes(): Flow<Long> =
+        cachedFileDao.observeTotalSize()
+
+    /**
      * @param nameQuery prefix to match against file names, case-insensitively.
      *   Blank means no filtering.
      */

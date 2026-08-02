@@ -11,15 +11,20 @@ private const val BYTES_PER_KB = 1024.0
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-/** Drive sends `size` as a string because it is an int64; the index stores it parsed. */
+/**
+ * Drive sends `size` as a string because it is an int64; the index stores it parsed.
+ *
+ * Carries tiers up to GB because it also formats totals — the whole download cache and
+ * the device's free space — not just single MP3s, which never leave the MB range.
+ */
 fun formatSize(sizeBytes: Long?): String {
     val bytes = sizeBytes ?: return UNKNOWN
+    if (bytes < 1024L) return "$bytes B"
     val kb = bytes / BYTES_PER_KB
-    return when {
-        bytes < 1024 -> "$bytes B"
-        kb < 1024 -> String.format(Locale.US, "%.0f KB", kb)
-        else -> String.format(Locale.US, "%.1f MB", kb / BYTES_PER_KB)
-    }
+    if (kb < 1024) return String.format(Locale.US, "%.0f KB", kb)
+    val mb = kb / BYTES_PER_KB
+    if (mb < 1024) return String.format(Locale.US, "%.1f MB", mb)
+    return String.format(Locale.US, "%.1f GB", mb / BYTES_PER_KB)
 }
 
 /**

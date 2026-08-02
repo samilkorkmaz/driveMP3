@@ -88,6 +88,17 @@ class MediaCache(
         return DataSource.Factory { delegate.createDataSource() }
     }
 
+    /**
+     * Usable free space on the volume that holds the download cache, for the storage
+     * summary shown alongside the total downloaded size.
+     *
+     * Read from `filesDir` rather than [directory]: the two share a volume, and
+     * `filesDir` always exists, so this reports correctly even before the cache has been
+     * opened and its directory created. `usableSpace` — not `freeSpace` — because it
+     * accounts for the reserve the OS won't hand to an app.
+     */
+    fun freeSpaceBytes(): Long = appContext.filesDir.usableSpace
+
     /** Brings one file's row in line with the disk. */
     suspend fun sync(fileId: String): Unit = withContext(Dispatchers.IO) {
         val completeBytes = completeSizeOf(fileId)

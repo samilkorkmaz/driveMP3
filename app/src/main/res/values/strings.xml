@@ -46,6 +46,8 @@
 
     <!-- Cache (FR-3.2.4). Shown only when the whole file is on disk. -->
     <string name="downloaded">Downloaded</string>
+    <!-- Storage summary: %1$s total downloaded size, %2$s device free space. -->
+    <string name="storage_summary">%1$s downloaded · %2$s free</string>
 
     <plurals name="track_count">
         <item quantity="one">%d MP3 file</item>

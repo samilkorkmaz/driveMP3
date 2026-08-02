@@ -328,7 +328,20 @@ private fun ScopeHeader(
             Text(scopeLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         supportingContent = {
-            Text(pluralStringResource(R.plurals.track_count, state.tracks.size, state.tracks.size))
+            Column {
+                Text(
+                    pluralStringResource(R.plurals.track_count, state.tracks.size, state.tracks.size)
+                )
+                Text(
+                    text = stringResource(
+                        R.string.storage_summary,
+                        formatSize(state.downloadedBytes),
+                        formatSize(state.freeSpaceBytes),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
         trailingContent = {
             androidx.compose.material3.TextButton(onClick = onChangeFolder) {

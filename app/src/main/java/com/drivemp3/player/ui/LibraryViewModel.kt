@@ -23,6 +23,7 @@ import com.drivemp3.player.playback.PlaybackConnection
 import com.drivemp3.player.playback.PlaybackState
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -57,6 +59,10 @@ sealed interface LibraryUiState {
         val tracks: List<TrackEntity>,
         /** Ids held complete on disk — the "Downloaded" badge (FR-3.2.4). */
         val downloadedTrackIds: Set<String>,
+        /** Total bytes of every fully-downloaded track. */
+        val downloadedBytes: Long,
+        /** Usable free space on the volume that holds the download cache. */
+        val freeSpaceBytes: Long,
         val searchQuery: String,
         val isRefreshing: Boolean,
         /** A failed refresh: shown as a banner without discarding the indexed list. */
@@ -106,6 +112,19 @@ class LibraryViewModel(
         val searchQuery: String,
     )
 
+    /** The two figures behind the storage summary, carried together through the combine. */
+    private data class Storage(val downloadedBytes: Long, val freeSpaceBytes: Long)
+
+    /**
+     * Total downloaded size paired with current free space. Driven by the downloaded
+     * total — free space is re-read on the same IO hop each time a download completes or
+     * a cached file is dropped, which is exactly when the pair changes.
+     */
+    private val storage: kotlinx.coroutines.flow.Flow<Storage> =
+        trackRepository.observeDownloadedTotalBytes()
+            .map { downloaded -> Storage(downloaded, mediaCache.freeSpaceBytes()) }
+            .flowOn(Dispatchers.IO)
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<LibraryUiState> = combine(
         session,
@@ -134,13 +153,16 @@ class LibraryViewModel(
                         combine(
                             trackRepository.observeTracks(scope, sortOrder, searchQuery),
                             trackRepository.observeDownloadedIds(),
-                        ) { tracks, downloadedIds ->
+                            storage,
+                        ) { tracks, downloadedIds, storage ->
                             LibraryUiState.Content(
                                 email = session.email,
                                 scope = scope,
                                 sortOrder = sortOrder,
                                 tracks = tracks,
                                 downloadedTrackIds = downloadedIds,
+                                downloadedBytes = storage.downloadedBytes,
+                                freeSpaceBytes = storage.freeSpaceBytes,
                                 searchQuery = searchQuery,
                                 isRefreshing = session.isRefreshing,
                                 refreshError = session.refreshError,

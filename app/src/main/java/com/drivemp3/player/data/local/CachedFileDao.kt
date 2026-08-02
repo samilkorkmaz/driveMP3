@@ -18,6 +18,15 @@ interface CachedFileDao {
     @Query("SELECT fileId FROM cached_files")
     suspend fun cachedIds(): List<String>
 
+    /**
+     * Total bytes of every fully-downloaded file, for the storage summary.
+     *
+     * `COALESCE` because `SUM` over no rows is SQL NULL, not 0 — an empty cache should
+     * read as "0 B downloaded", not as unknown.
+     */
+    @Query("SELECT COALESCE(SUM(sizeBytes), 0) FROM cached_files")
+    fun observeTotalSize(): Flow<Long>
+
     @Upsert
     suspend fun upsert(entity: CachedFileEntity)
 
