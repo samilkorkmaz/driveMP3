@@ -7,11 +7,15 @@ import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
-import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.drivemp3.player.data.SettingsStore
 import com.drivemp3.player.data.local.CachedFileDao
 import com.drivemp3.player.data.local.CachedFileEntity
+import com.drivemp3.player.model.CacheQuota
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -35,14 +39,23 @@ import java.io.File
  *
  * @param dao the queryable mirror of what is on disk. Disk is authoritative; [reconcile]
  *   and [sync] bring the mirror back in line rather than the other way round.
+ * @param settingsStore watched for the cache quota (FR-3.2.2); a change applies live.
  */
 @OptIn(UnstableApi::class)
 class MediaCache(
     context: Context,
     private val dao: CachedFileDao,
+    settingsStore: SettingsStore,
 ) {
 
     private val appContext = context.applicationContext
+
+    /**
+     * Process-lived, never cancelled: this object is a ServiceLocator singleton. Carries
+     * the quota-watching collector and the fire-and-forget mirror deletes an eviction
+     * triggers. IO because both open or touch the cache directory.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Under `filesDir`, deliberately not `cacheDir`: Android reclaims `cacheDir` under
@@ -52,17 +65,46 @@ class MediaCache(
     private val directory = File(appContext.filesDir, CACHE_DIR_NAME)
 
     /**
-     * [NoOpCacheEvictor] — the cache grows without limit for now. v0.5 does this on
-     * purpose so that v0.6's quota and LRU eviction can be built against a real, full
-     * cache rather than a synthetic one. See VERSION_PLAN.md section 3.
+     * The LRU-under-quota evictor (FR-3.2.3). When it drops a file, the mirror row is
+     * deleted here so the "Downloaded" badge and storage totals clear with it. The delete
+     * is fire-and-forget and idempotent — a manual [remove] may have beaten it to the row.
      */
+    private val evictor = QuotaLruCacheEvictor(
+        initialMaxBytes = CacheQuota.DEFAULT.bytes,
+        onEvicted = { fileId -> scope.launch { dao.deleteAll(listOf(fileId)) } },
+    )
+
     private val cache: SimpleCache by lazy {
         SimpleCache(
             directory,
-            NoOpCacheEvictor(),
+            evictor,
             StandaloneDatabaseProvider(appContext),
         )
     }
+
+    init {
+        // Apply the quota, and evict down to it, on every change — including the first
+        // value at launch, which enforces a limit lowered in a previous session. Touching
+        // `cache` opens it (a directory scan), so this deliberately runs on the IO scope,
+        // never the main thread.
+        scope.launch {
+            settingsStore.cacheQuota.collect { quota -> evictor.setMaxBytes(cache, quota.bytes) }
+        }
+    }
+
+    /**
+     * Protects [fileId] from eviction while it plays, and releases the previous pin
+     * (FR-3.2.3). Null when playback stops. Cheap enough for the main thread — it only
+     * sets a field, and never opens the cache.
+     */
+    fun pin(fileId: String?) = evictor.setPinnedKey(fileId)
+
+    /**
+     * Bytes on disk across every cached span, complete or partial — the true cache
+     * footprint for the Settings storage bar, which is larger than the mirror's total of
+     * only fully-downloaded files.
+     */
+    suspend fun usedBytes(): Long = withContext(Dispatchers.IO) { cache.cacheSpace }
 
     /**
      * Wraps [upstream] so reads are served from disk where possible and written to disk

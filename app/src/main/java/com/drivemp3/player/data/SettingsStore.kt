@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.drivemp3.player.model.CacheQuota
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.PlaybackModes
 import com.drivemp3.player.model.SortDirection
@@ -59,6 +60,11 @@ class SettingsStore(context: Context) {
         }
         .distinctUntilChanged()
 
+    /** The offline-cache ceiling (FR-3.2.2). Defaults to unlimited — see [CacheQuota]. */
+    val cacheQuota: Flow<CacheQuota> = preferences
+        .map { prefs -> prefs[Keys.CacheQuota].toEnum(CacheQuota.entries, CacheQuota.DEFAULT) }
+        .distinctUntilChanged()
+
     val playbackModes: Flow<PlaybackModes> = preferences
         .map { prefs ->
             PlaybackModes(
@@ -93,6 +99,10 @@ class SettingsStore(context: Context) {
         }
     }
 
+    suspend fun setCacheQuota(quota: CacheQuota) {
+        dataStore.edit { prefs -> prefs[Keys.CacheQuota] = quota.name }
+    }
+
     private object Keys {
         val ScopeKey = stringPreferencesKey("scope_key")
         val ScopeFolderName = stringPreferencesKey("scope_folder_name")
@@ -100,6 +110,7 @@ class SettingsStore(context: Context) {
         val SortDirection = stringPreferencesKey("sort_direction")
         val RepeatOne = booleanPreferencesKey("repeat_one")
         val Shuffle = booleanPreferencesKey("shuffle")
+        val CacheQuota = stringPreferencesKey("cache_quota")
     }
 }
 

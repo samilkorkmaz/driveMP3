@@ -19,11 +19,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -78,7 +77,6 @@ fun LibraryScreen(
     playback: () -> PlaybackState,
     playingTrackId: String?,
     onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
     onChangeFolder: () -> Unit,
@@ -87,7 +85,7 @@ fun LibraryScreen(
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
     onClearTrack: (TrackEntity) -> Unit,
-    onClearCache: () -> Unit,
+    onOpenSettings: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onSkipNext: () -> Unit,
@@ -111,12 +109,12 @@ fun LibraryScreen(
                                 contentDescription = stringResource(R.string.refresh),
                             )
                         }
-                        OverflowMenu(
-                            canClearCache = state.downloadedBytes > 0L,
-                            onChangeFolder = onChangeFolder,
-                            onClearCache = onClearCache,
-                            onSignOut = onSignOut,
-                        )
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.settings),
+                            )
+                        }
                     }
                 },
             )
@@ -171,76 +169,6 @@ fun LibraryScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun OverflowMenu(
-    canClearCache: Boolean,
-    onChangeFolder: () -> Unit,
-    onClearCache: () -> Unit,
-    onSignOut: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    // Survives recomposition so the confirmation stays up through a rotation while the
-    // user is deciding whether to wipe everything.
-    var showClearConfirm by rememberSaveable { mutableStateOf(false) }
-
-    IconButton(onClick = { expanded = true }) {
-        Icon(
-            imageVector = Icons.Default.MoreVert,
-            contentDescription = stringResource(R.string.more_options),
-        )
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.change_folder)) },
-            onClick = {
-                expanded = false
-                onChangeFolder()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.clear_all_downloads)) },
-            // Nothing on disk to clear: greyed rather than hidden, so the option is
-            // still discoverable and its disabled state explains why.
-            enabled = canClearCache,
-            onClick = {
-                expanded = false
-                showClearConfirm = true
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.sign_out)) },
-            onClick = {
-                expanded = false
-                onSignOut()
-            },
-        )
-    }
-
-    // Wiping every download is irreversible from the UI, so it is confirmed. A single
-    // track, cleared through a two-step long-press menu, is deliberate enough not to be.
-    if (showClearConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirm = false },
-            title = { Text(stringResource(R.string.clear_all_downloads_title)) },
-            text = { Text(stringResource(R.string.clear_all_downloads_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showClearConfirm = false
-                    onClearCache()
-                }) {
-                    Text(stringResource(R.string.clear))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirm = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            },
-        )
     }
 }
 
@@ -393,7 +321,7 @@ private fun ScopeHeader(
             }
         },
         trailingContent = {
-            androidx.compose.material3.TextButton(onClick = onChangeFolder) {
+            TextButton(onClick = onChangeFolder) {
                 Text(stringResource(R.string.change_folder))
             }
         },

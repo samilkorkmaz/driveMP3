@@ -24,6 +24,7 @@ import com.drivemp3.player.ui.FolderPickerViewModel
 import com.drivemp3.player.ui.LibraryScreen
 import com.drivemp3.player.ui.LibraryUiState
 import com.drivemp3.player.ui.LibraryViewModel
+import com.drivemp3.player.ui.SettingsScreen
 import com.drivemp3.player.ui.theme.DriveMp3Theme
 
 class MainActivity : ComponentActivity() {
@@ -72,9 +73,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Two screens, so navigation is a boolean rather than a nav graph.
+                // A few screens, so navigation is booleans rather than a nav graph.
                 // The picker is forced open when no scope has ever been chosen.
                 var isChangingFolder by rememberSaveable { mutableStateOf(false) }
+                var isViewingSettings by rememberSaveable { mutableStateOf(false) }
                 val mustChooseFolder = libraryState is LibraryUiState.NeedsFolderSelection
 
                 if (isChangingFolder || mustChooseFolder) {
@@ -98,6 +100,22 @@ class MainActivity : ComponentActivity() {
                             { isChangingFolder = false }
                         },
                     )
+                } else if (isViewingSettings) {
+                    val settingsState by
+                        libraryViewModel.settings.collectAsStateWithLifecycle()
+
+                    SettingsScreen(
+                        state = settingsState,
+                        onBack = { isViewingSettings = false },
+                        onQuotaSelected = libraryViewModel::setCacheQuota,
+                        onClearCache = libraryViewModel::clearCache,
+                        onSignOut = {
+                            libraryViewModel.signOut()
+                            // Nothing to configure once signed out; fall back to the
+                            // library, which now shows the signed-out screen.
+                            isViewingSettings = false
+                        },
+                    )
                 } else {
                     LibraryScreen(
                         state = libraryState,
@@ -106,7 +124,6 @@ class MainActivity : ComponentActivity() {
                         playback = { playback },
                         playingTrackId = playingTrackId,
                         onSignIn = libraryViewModel::signIn,
-                        onSignOut = libraryViewModel::signOut,
                         onRetry = libraryViewModel::retry,
                         onRefresh = libraryViewModel::refresh,
                         onChangeFolder = { isChangingFolder = true },
@@ -115,7 +132,7 @@ class MainActivity : ComponentActivity() {
                         onSearchQueryChange = libraryViewModel::onSearchQueryChange,
                         onTrackClick = libraryViewModel::onTrackClick,
                         onClearTrack = libraryViewModel::clearTrack,
-                        onClearCache = libraryViewModel::clearCache,
+                        onOpenSettings = { isViewingSettings = true },
                         onTogglePlayPause = libraryViewModel::togglePlayPause,
                         onSeek = libraryViewModel::seekTo,
                         onSkipNext = libraryViewModel::skipToNext,

@@ -15,6 +15,7 @@ import com.drivemp3.player.data.DriveRepository
 import com.drivemp3.player.data.SettingsStore
 import com.drivemp3.player.data.TrackRepository
 import com.drivemp3.player.data.local.TrackEntity
+import com.drivemp3.player.model.CacheQuota
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
@@ -72,6 +73,16 @@ sealed interface LibraryUiState {
     data class Failed(val message: String) : LibraryUiState
 }
 
+/** What the Settings screen renders (spec §6). */
+data class SettingsUiState(
+    val email: String?,
+    val quota: CacheQuota,
+    /** Bytes on disk across every cached span, complete or partial. */
+    val usedCacheBytes: Long,
+    /** Usable free space on the volume that holds the cache. */
+    val deviceFreeBytes: Long,
+)
+
 class LibraryViewModel(
     private val auth: DriveAuthManager,
     private val settingsStore: SettingsStore,
@@ -124,6 +135,31 @@ class LibraryViewModel(
         trackRepository.observeDownloadedTotalBytes()
             .map { downloaded -> Storage(downloaded, mediaCache.freeSpaceBytes()) }
             .flowOn(Dispatchers.IO)
+
+    /**
+     * Settings-screen state (spec §6). The downloaded-total flow is only a change
+     * trigger here — a download finishing or an eviction firing re-reads the true cache
+     * footprint and device free space. Read on IO because both touch the disk.
+     */
+    val settings: StateFlow<SettingsUiState> = combine(
+        session.map { it.email }.distinctUntilChanged(),
+        settingsStore.cacheQuota,
+        trackRepository.observeDownloadedTotalBytes(),
+    ) { email, quota, _ -> email to quota }
+        .map { (email, quota) ->
+            SettingsUiState(
+                email = email,
+                quota = quota,
+                usedCacheBytes = mediaCache.usedBytes(),
+                deviceFreeBytes = mediaCache.freeSpaceBytes(),
+            )
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = SettingsUiState(null, CacheQuota.DEFAULT, 0L, 0L),
+        )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<LibraryUiState> = combine(
@@ -395,6 +431,15 @@ class LibraryViewModel(
             playbackConnection.stopPlayback()
             mediaCache.clearAll()
         }
+    }
+
+    /**
+     * Changes the cache ceiling (FR-3.2.2). Persisting it is all that is needed — the
+     * [MediaCache] collector reacts to the new value and evicts down to it if the cache
+     * already exceeds it.
+     */
+    fun setCacheQuota(quota: CacheQuota) {
+        viewModelScope.launch { settingsStore.setCacheQuota(quota) }
     }
 
     fun togglePlayPause() = playbackConnection.togglePlayPause()

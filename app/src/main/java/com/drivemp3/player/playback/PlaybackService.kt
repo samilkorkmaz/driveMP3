@@ -187,6 +187,10 @@ class PlaybackService : MediaSessionService() {
             currentCacheKey = mediaItem?.mediaId?.takeIf { it.isNotEmpty() }
             val incoming = currentCacheKey
 
+            // Protect the track now playing from LRU eviction, releasing the one left
+            // behind (FR-3.2.3). Null incoming — the queue was cleared — unpins entirely.
+            mediaCache.pin(incoming)
+
             scope.launch {
                 outgoing?.let { mediaCache.sync(it) }
                 incoming?.let { mediaCache.sync(it) }
@@ -217,6 +221,9 @@ class PlaybackService : MediaSessionService() {
         val fileId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
         if (fileId.isEmpty()) return
         currentCacheKey = fileId
+        // Covers a media-button revival that starts playing with no transition callback,
+        // so the pin is correct even when the service came up headless.
+        mediaCache.pin(fileId)
         scope.launch { mediaCache.sync(fileId) }
     }
 

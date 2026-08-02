@@ -65,6 +65,7 @@ object ServiceLocator {
             mediaCacheInstance ?: MediaCache(
                 context = context.applicationContext,
                 dao = database(context).cachedFileDao(),
+                settingsStore = settingsStore(context),
             ).also { mediaCacheInstance = it }
         }
 

@@ -57,6 +57,24 @@
     <string name="clear">Clear</string>
     <string name="cancel">Cancel</string>
 
+    <!-- Settings (spec §6) -->
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+    <string name="account">Account</string>
+    <string name="account_signed_in">Signed in</string>
+    <string name="cache_limit">Cache limit</string>
+    <string name="quota_250_mb">250 MB</string>
+    <string name="quota_500_mb">500 MB</string>
+    <string name="quota_1_gb">1 GB</string>
+    <string name="quota_5_gb">5 GB</string>
+    <string name="quota_unlimited">Unlimited</string>
+    <string name="storage_label">Storage</string>
+    <!-- %1$s used cache, %2$s configured limit. -->
+    <string name="storage_used_of_limit">%1$s used of %2$s</string>
+    <string name="storage_used_unlimited">%1$s used</string>
+    <string name="storage_device_free">%1$s free on device</string>
+    <string name="clear_cache">Clear cache</string>
+
     <plurals name="track_count">
         <item quantity="one">%d MP3 file</item>
         <item quantity="other">%d MP3 files</item>
