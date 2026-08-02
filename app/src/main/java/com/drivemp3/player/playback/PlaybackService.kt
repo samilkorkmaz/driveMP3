@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -107,6 +108,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         restorePersistedModes(player)
+        restorePlaybackPosition(player)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -177,6 +179,9 @@ class PlaybackService : MediaSessionService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) startCacheWatcher() else stopCacheWatcher()
             syncCurrentTrack()
+            // Pausing is the one moment a stopped position must be captured exactly: the
+            // periodic save only runs while playing.
+            if (!isPlaying) saveResumeState()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -191,6 +196,10 @@ class PlaybackService : MediaSessionService() {
             // behind (FR-3.2.3). Null incoming — the queue was cleared — unpins entirely.
             mediaCache.pin(incoming)
 
+            // A null incoming track means the queue was emptied (stop / sign-out), so
+            // there is nothing to resume; otherwise record the new track at its start.
+            if (incoming == null) clearResumeState() else saveResumeState()
+
             scope.launch {
                 outgoing?.let { mediaCache.sync(it) }
                 incoming?.let { mediaCache.sync(it) }
@@ -198,7 +207,12 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_ENDED) syncCurrentTrack()
+            if (playbackState == Player.STATE_ENDED) {
+                syncCurrentTrack()
+                // The finished track resumes from its start — saveResumeState clamps an
+                // ENDED player's position to zero.
+                saveResumeState()
+            }
         }
     }
 
@@ -208,6 +222,9 @@ class PlaybackService : MediaSessionService() {
             while (isActive) {
                 delay(CACHE_POLL_MS)
                 syncCurrentTrack()
+                // Cheap insurance against a process the system kills mid-playback:
+                // the position on disk is then never more than one poll stale.
+                saveResumeState()
             }
         }
     }
@@ -225,6 +242,62 @@ class PlaybackService : MediaSessionService() {
         // so the pin is correct even when the service came up headless.
         mediaCache.pin(fileId)
         scope.launch { mediaCache.sync(fileId) }
+    }
+
+    /**
+     * Persists the current track and position so a cold start can resume it (spec §5).
+     *
+     * Reads the player on the main thread, as Media3 requires, then hands the write to
+     * DataStore off-thread. [positionOverride] lets end-of-track save a zero rather than
+     * the final millisecond, where resuming would land on a track that instantly ends.
+     */
+    private fun saveResumeState() {
+        val player = mediaSession?.player ?: return
+        val item = player.currentMediaItem ?: return
+        val fileId = item.mediaId.takeIf { it.isNotEmpty() } ?: return
+        val name = item.mediaMetadata.title?.toString().orEmpty()
+        // A finished track resumes from its start, not its final millisecond where play
+        // would do nothing. Clamped here rather than at the call site so it holds no
+        // matter which of the end-of-track callbacks fires the save last.
+        val position =
+            if (player.playbackState == Player.STATE_ENDED) 0L
+            else player.currentPosition.coerceAtLeast(0L)
+        scope.launch { settingsStore.setResumeState(fileId, name, position) }
+    }
+
+    private fun clearResumeState() {
+        scope.launch { settingsStore.clearResumeState() }
+    }
+
+    /**
+     * Reloads the last track at its saved position on a fresh process (spec §5).
+     *
+     * Deliberately does *not* `prepare()` or play: the item is set with its start
+     * position and left IDLE, so a cold launch shows where playback left off without
+     * needing a network round trip or a valid token, and without audio erupting on its
+     * own. The first play/skip prepares it — [PlaybackConnection] already re-prepares an
+     * idle player — and resumes from the restored position.
+     *
+     * Guarded on an empty player so it never clobbers a session that outlived the UI, or
+     * a track the user tapped before the restore read finished.
+     */
+    private fun restorePlaybackPosition(player: Player) {
+        scope.launch {
+            if (player.mediaItemCount > 0) return@launch
+            val resume = settingsStore.resumeState.first() ?: return@launch
+            if (player.mediaItemCount > 0) return@launch
+
+            val item = MediaItem.Builder()
+                .setMediaId(resume.trackId)
+                .setUri(DriveApi.mediaUrl(resume.trackId))
+                .setCustomCacheKey(resume.trackId)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(resume.trackName).build())
+                .build()
+
+            player.setMediaItem(item, resume.positionMs)
+            currentCacheKey = resume.trackId
+            mediaCache.pin(resume.trackId)
+        }
     }
 
     /**

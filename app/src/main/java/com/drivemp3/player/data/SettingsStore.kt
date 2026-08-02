@@ -6,11 +6,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.drivemp3.player.model.CacheQuota
 import com.drivemp3.player.model.LibraryScope
 import com.drivemp3.player.model.PlaybackModes
+import com.drivemp3.player.model.ResumeState
 import com.drivemp3.player.model.SortDirection
 import com.drivemp3.player.model.SortField
 import com.drivemp3.player.model.SortOrder
@@ -103,6 +105,38 @@ class SettingsStore(context: Context) {
         dataStore.edit { prefs -> prefs[Keys.CacheQuota] = quota.name }
     }
 
+    /**
+     * Where playback last was, for resume-on-launch. Null once nothing is loaded — a
+     * missing track id is the signal, so a stale name or position can never resurrect a
+     * cleared session.
+     */
+    val resumeState: Flow<ResumeState?> = preferences
+        .map { prefs ->
+            val trackId = prefs[Keys.ResumeTrackId] ?: return@map null
+            ResumeState(
+                trackId = trackId,
+                trackName = prefs[Keys.ResumeTrackName].orEmpty(),
+                positionMs = prefs[Keys.ResumePositionMs] ?: 0L,
+            )
+        }
+        .distinctUntilChanged()
+
+    suspend fun setResumeState(trackId: String, trackName: String, positionMs: Long) {
+        dataStore.edit { prefs ->
+            prefs[Keys.ResumeTrackId] = trackId
+            prefs[Keys.ResumeTrackName] = trackName
+            prefs[Keys.ResumePositionMs] = positionMs
+        }
+    }
+
+    suspend fun clearResumeState() {
+        dataStore.edit { prefs ->
+            prefs.remove(Keys.ResumeTrackId)
+            prefs.remove(Keys.ResumeTrackName)
+            prefs.remove(Keys.ResumePositionMs)
+        }
+    }
+
     private object Keys {
         val ScopeKey = stringPreferencesKey("scope_key")
         val ScopeFolderName = stringPreferencesKey("scope_folder_name")
@@ -111,6 +145,9 @@ class SettingsStore(context: Context) {
         val RepeatOne = booleanPreferencesKey("repeat_one")
         val Shuffle = booleanPreferencesKey("shuffle")
         val CacheQuota = stringPreferencesKey("cache_quota")
+        val ResumeTrackId = stringPreferencesKey("resume_track_id")
+        val ResumeTrackName = stringPreferencesKey("resume_track_name")
+        val ResumePositionMs = longPreferencesKey("resume_position_ms")
     }
 }
 
