@@ -74,6 +74,9 @@
     <string name="storage_used_unlimited">%1$s used</string>
     <string name="storage_device_free">%1$s free on device</string>
     <string name="clear_cache">Clear cache</string>
+    <string name="about">About</string>
+    <string name="build_time">Build time</string>
+    <string name="build_commit">Commit</string>
 
     <!-- Offline resilience &amp; hardening (spec §5, v0.7) -->
     <string name="offline_banner">You\'re offline. Only downloaded tracks can play.</string>

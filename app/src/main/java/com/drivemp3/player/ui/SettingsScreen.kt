@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.drivemp3.player.BuildConfig
 import com.drivemp3.player.R
 import com.drivemp3.player.model.CacheQuota
 
@@ -96,7 +97,47 @@ fun SettingsScreen(
                 deviceFreeBytes = state.deviceFreeBytes,
                 onClearCache = onClearCache,
             )
+
+            HorizontalDivider()
+
+            AboutSection()
         }
+    }
+}
+
+/** Build provenance: when this APK was built and which commit it came from. */
+@Composable
+private fun AboutSection() {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        SectionTitle(stringResource(R.string.about))
+        BuildInfoRow(
+            label = stringResource(R.string.build_time),
+            value = BuildConfig.BUILD_TIME,
+        )
+        BuildInfoRow(
+            label = stringResource(R.string.build_commit),
+            value = BuildConfig.GIT_HASH,
+        )
+    }
+}
+
+@Composable
+private fun BuildInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

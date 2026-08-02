@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +9,20 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+// Short commit the build was cut from, for the Settings build-info line. Resolved at
+// configuration time; falls back to "unknown" when git is absent (e.g. a source zip) or
+// the command fails, so a build never breaks over a missing hash.
+val gitHash: String = runCatching {
+    providers.exec {
+        commandLine("git", "rev-parse", "--short=8", "HEAD")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrNull()?.takeIf { it.isNotEmpty() } ?: "unknown"
+
+// Wall-clock time of this build, device-local. Changing every build is the point — it
+// intentionally re-stamps BuildConfig each time, so it always reflects the current APK.
+val buildTime: String = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.US).format(Date())
 
 android {
     namespace = "com.drivemp3.player"
@@ -16,6 +34,9 @@ android {
         targetSdk = 35
         versionCode = 7
         versionName = "0.7"
+
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+        buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     }
 
     buildTypes {
